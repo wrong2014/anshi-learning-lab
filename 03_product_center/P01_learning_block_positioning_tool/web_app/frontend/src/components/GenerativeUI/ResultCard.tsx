@@ -1,4 +1,4 @@
-import React from 'react';
+﻿
 import { Target, XCircle, CheckCircle2 } from 'lucide-react';
 import styles from './ResultCard.module.css';
 import type { ResultData } from '../../types';

@@ -13,8 +13,13 @@ interface Props {
 
 export default function SingleChoiceCard({ block, onSelect, onMultiSelect, onFreeText, disabled }: Props) {
   const isMulti = block.type === 'multi_choice';
+  const minSelect = block.min_select ?? (isMulti ? 1 : 0);
+  const maxSelect = block.max_select ?? Infinity;
+  const allowSkip = block.allow_skip ?? true;
+  const allowFreeText = block.allow_free_text ?? true;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [otherText, setOtherText] = useState('');
+  const [showOtherInput, setShowOtherInput] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   const effectiveDisabled = disabled || submitted;
@@ -30,13 +35,16 @@ export default function SingleChoiceCard({ block, onSelect, onMultiSelect, onFre
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(optId)) next.delete(optId);
-      else next.add(optId);
+      else {
+        if (Number.isFinite(maxSelect) && next.size >= maxSelect) return next;
+        next.add(optId);
+      }
       return next;
     });
   };
 
   const handleMultiConfirm = () => {
-    if (effectiveDisabled || selectedIds.size === 0) return;
+    if (effectiveDisabled || selectedIds.size < minSelect) return;
     setSubmitted(true);
     const ids = Array.from(selectedIds);
     const labels = ids.map(id => block.options?.find(o => o.id === id)?.label || id);
@@ -58,6 +66,16 @@ export default function SingleChoiceCard({ block, onSelect, onMultiSelect, onFre
     }
   };
 
+  const handleSkip = () => {
+    if (effectiveDisabled || !isMulti || !allowSkip) return;
+    setSubmitted(true);
+    if (onMultiSelect) {
+      onMultiSelect([], ['先跳过']);
+    } else {
+      onSelect('_skip', '先跳过');
+    }
+  };
+
   const handleOtherKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -68,6 +86,7 @@ export default function SingleChoiceCard({ block, onSelect, onMultiSelect, onFre
   return (
     <div className={styles.card} style={{ opacity: effectiveDisabled ? 0.7 : 1, pointerEvents: effectiveDisabled ? 'none' : 'auto' }}>
       {block.title && <div className={styles.cardTitle}>{block.title}</div>}
+      {block.body && <div className={styles.cardBody}>{block.body}</div>}
 
       {block.options?.map((opt) => (
         isMulti ? (
@@ -94,34 +113,59 @@ export default function SingleChoiceCard({ block, onSelect, onMultiSelect, onFre
 
       {/* 多选确认按钮 */}
       {isMulti && (
-        <button
-          className={styles.confirmBtn}
-          onClick={handleMultiConfirm}
-          disabled={selectedIds.size === 0}
-        >
-          确认选择 ({selectedIds.size})
-        </button>
+        <div className={styles.actionRow}>
+          <button
+            className={styles.confirmBtn}
+            onClick={handleMultiConfirm}
+            disabled={selectedIds.size < minSelect}
+          >
+            确认这些情况 ({selectedIds.size})
+          </button>
+          {allowSkip && (
+            <button
+              className={styles.skipBtn}
+              onClick={handleSkip}
+              type="button"
+            >
+              先跳过
+            </button>
+          )}
+        </div>
       )}
 
       {/* "其他"自由输入 */}
-      <div className={styles.otherInput}>
-        <input
-          type="text"
-          className={styles.otherTextField}
-          placeholder="都不像？用你自己的话说..."
-          value={otherText}
-          onChange={(e) => setOtherText(e.target.value)}
-          onKeyDown={handleOtherKeyDown}
-          disabled={effectiveDisabled}
-        />
+      {allowFreeText && !showOtherInput && (
         <button
-          className={styles.otherSendBtn}
-          onClick={handleOtherSubmit}
-          disabled={!otherText.trim() || effectiveDisabled}
+          type="button"
+          className={styles.otherToggle}
+          onClick={() => setShowOtherInput(true)}
+          disabled={effectiveDisabled}
         >
-          <Send size={14} />
+          {block.free_text_label || '都不像，我自己说'}
         </button>
-      </div>
+      )}
+
+      {allowFreeText && showOtherInput && (
+        <div className={styles.otherInput}>
+          <input
+            type="text"
+            className={styles.otherTextField}
+            placeholder={block.free_text_placeholder || '用你自己的话说，不用选上面的。'}
+            value={otherText}
+            onChange={(e) => setOtherText(e.target.value)}
+            onKeyDown={handleOtherKeyDown}
+            disabled={effectiveDisabled}
+            autoFocus
+          />
+          <button
+            className={styles.otherSendBtn}
+            onClick={handleOtherSubmit}
+            disabled={!otherText.trim() || effectiveDisabled}
+          >
+            <Send size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

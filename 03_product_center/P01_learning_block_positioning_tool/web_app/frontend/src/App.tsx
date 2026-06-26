@@ -1,4 +1,4 @@
-import React from 'react';
+﻿
 import { Bot, History, Settings, MessageSquare } from 'lucide-react';
 import clsx from 'clsx';
 import styles from './App.module.css';

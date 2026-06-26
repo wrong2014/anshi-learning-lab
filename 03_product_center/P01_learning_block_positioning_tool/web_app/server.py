@@ -57,6 +57,7 @@ class Handler(BaseHTTPRequestHandler):
 
             response = {
                 "session_id": session.session_id,
+                "active_ui_block_id": session.pending_ui_block_id,
                 "agent_messages": [
                     {
                         "text": msg.text,
@@ -97,9 +98,12 @@ class Handler(BaseHTTPRequestHandler):
                 free_text = payload.get("free_text") or None
                 selected_option_ids = payload.get("selected_option_ids") or []
                 selected_labels = payload.get("selected_labels") or []
+                ui_block_id = payload.get("ui_block_id") or None
 
                 # 记录用户输入
                 persist_event(session_id, "user_input", {
+                    "ui_block_id": ui_block_id,
+                    "pending_ui_block_id": session.pending_ui_block_id,
                     "free_text": free_text,
                     "selected_option_ids": selected_option_ids,
                     "selected_labels": selected_labels,
@@ -112,6 +116,7 @@ class Handler(BaseHTTPRequestHandler):
                     text=free_text,
                     selected_option_ids=selected_option_ids,
                     selected_labels=selected_labels,
+                    ui_block_id=ui_block_id,
                 )
 
                 # 记录智能体回复
@@ -127,6 +132,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 response = {
                     "session_id": session_id,
+                    "active_ui_block_id": session.pending_ui_block_id,
                     "agent_messages": [
                         {
                             "text": msg.text,

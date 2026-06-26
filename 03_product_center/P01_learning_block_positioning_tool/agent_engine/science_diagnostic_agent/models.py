@@ -31,6 +31,8 @@ class FactorCode(str, Enum):
     F08_STRATEGY = "F08_learning_strategy_inefficient"
     F09_EMOTION = "F09_emotion_motivation_self_efficacy"
     F10_SUPPORT_AI = "F10_family_support_ai_misaligned"
+    F11_ATTENTION_EXECUTIVE = "F11_attention_working_memory_load"
+    F12_MISCONCEPTION = "F12_misconception_naive_theory_interference"
 
 
 class Confidence(str, Enum):

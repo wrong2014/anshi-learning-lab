@@ -4,7 +4,14 @@ export interface UIBlock {
   type: string; // 'single_choice' | 'multi_choice' | 'short_text'
   id: string;
   title?: string;
+  body?: string;
   options?: { id: string; label: string }[];
+  allow_skip?: boolean;
+  allow_free_text?: boolean;
+  free_text_label?: string;
+  free_text_placeholder?: string;
+  min_select?: number;
+  max_select?: number;
 }
 
 export interface AgentMessageData {
@@ -27,6 +34,7 @@ export interface ResultData {
 
 export interface APIStartResponse {
   session_id: string;
+  active_ui_block_id?: string | null;
   agent_messages: AgentMessageData[];
   is_complete: boolean;
   result?: ResultData | null;
@@ -34,6 +42,7 @@ export interface APIStartResponse {
 
 export interface APIAnswerRequest {
   session_id: string;
+  ui_block_id?: string;
   free_text?: string;
   selected_option_ids?: string[];
   selected_labels?: string[];
@@ -41,6 +50,7 @@ export interface APIAnswerRequest {
 
 export interface APIAnswerResponse {
   session_id: string;
+  active_ui_block_id?: string | null;
   agent_messages: AgentMessageData[];
   is_complete: boolean;
   result?: ResultData | null;

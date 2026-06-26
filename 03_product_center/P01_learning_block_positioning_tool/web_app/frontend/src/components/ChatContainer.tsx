@@ -1,9 +1,46 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Loader2, Send } from 'lucide-react';
 import styles from './ChatContainer.module.css';
 import MessageBubble from './MessageBubble';
 import { startSession, submitAnswer } from '../api';
-import type { Message, ResultData } from '../types';
+import type { APIAnswerRequest, APIAnswerResponse, APIStartResponse, Message, UIBlock } from '../types';
+
+function createMessageId(prefix: string) {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getLatestUIBlock(messages: Message[]): UIBlock | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'agent' && message.uiBlock) return message.uiBlock;
+  }
+  return null;
+}
+
+function mapAgentMessages(res: APIStartResponse | APIAnswerResponse, prefix: string): Message[] {
+  const agentMessages = res.agent_messages || [];
+  if (!agentMessages.length && res.result) {
+    return [
+      {
+        id: createMessageId(`${prefix}-result`),
+        role: 'agent',
+        content: '我先把这次卡点整理成一个可执行的判断。',
+        result: res.result,
+      },
+    ];
+  }
+
+  return agentMessages.map((msg, index) => ({
+    id: createMessageId(`${prefix}-${index}`),
+    role: 'agent' as const,
+    content: msg.text || '',
+    uiBlock: msg.ui_block || undefined,
+    result: index === agentMessages.length - 1 ? res.result || undefined : undefined,
+  }));
+}
 
 export default function ChatContainer() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -21,24 +58,13 @@ export default function ChatContainer() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  // 启动会话
   useEffect(() => {
     setIsLoading(true);
     startSession()
       .then((res) => {
         setSessionId(res.session_id);
         setIsComplete(res.is_complete);
-
-        // 将智能体的消息添加到对话中
-        const agentMsgs = res.agent_messages || [];
-        const newMessages: Message[] = agentMsgs.map((msg, idx) => ({
-          id: `start-${idx}-${Date.now()}`,
-          role: 'agent' as const,
-          content: msg.text || '',
-          uiBlock: msg.ui_block || undefined,
-          result: res.result || undefined,
-        }));
-        setMessages(newMessages);
+        setMessages(mapAgentMessages(res, 'start'));
       })
       .catch((err) => {
         console.error(err);
@@ -55,68 +81,103 @@ export default function ChatContainer() {
       });
   }, []);
 
-  // 发送文本消息
-  const handleSendText = async () => {
-    if (!inputValue.trim() || !sessionId || isLoading || isComplete) return;
+  const sendToAgent = async (payload: Omit<APIAnswerRequest, 'session_id'>) => {
+    if (!sessionId || isLoading || isComplete) return;
 
-    const text = inputValue.trim();
-    setInputValue('');
-
-    // 添加用户消息气泡
-    setMessages((prev) => [
-      ...prev,
-      { id: `user-${Date.now()}`, role: 'user', content: text },
-    ]);
-
-    await sendToAgent({ free_text: text });
+    setIsLoading(true);
+    try {
+      const res = await submitAnswer({
+        session_id: sessionId,
+        ...payload,
+      });
+      setSessionId(res.session_id);
+      setIsComplete(res.is_complete);
+      setMessages((prev) => [...prev, ...mapAgentMessages(res, 'agent')]);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: createMessageId('error'),
+          role: 'agent',
+          content: '这轮分析没有成功。你可以换一种说法再发一次，或者稍后重试。',
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // 点击选项（单选）
+  const handleSendText = async () => {
+    const text = inputValue.trim();
+    if (!text || !sessionId || isLoading || isComplete) return;
+
+    setInputValue('');
+    setMessages((prev) => [
+      ...prev,
+      { id: createMessageId('user'), role: 'user', content: text },
+    ]);
+
+    const activeBlock = getLatestUIBlock(messages);
+    await sendToAgent({ ui_block_id: activeBlock?.id, free_text: text });
+  };
+
   const handleOptionSelect = async (blockId: string, optionId: string, optionLabel: string) => {
     if (!sessionId || isLoading || isComplete) return;
 
     setMessages((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, role: 'user', content: optionLabel },
+      { id: createMessageId('user'), role: 'user', content: optionLabel },
     ]);
 
     await sendToAgent({
+      ui_block_id: blockId,
       selected_option_ids: [optionId],
       selected_labels: [optionLabel],
     });
   };
 
-  // 多选确认
   const handleMultiSelect = async (blockId: string, optionIds: string[], optionLabels: string[]) => {
     if (!sessionId || isLoading || isComplete) return;
 
     setMessages((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, role: 'user', content: optionLabels.join('、') },
+      {
+        id: createMessageId('user'),
+        role: 'user',
+        content: optionLabels.length ? optionLabels.join('、') : '先跳过',
+      },
     ]);
 
     await sendToAgent({
+      ui_block_id: blockId,
       selected_option_ids: optionIds,
       selected_labels: optionLabels,
     });
   };
 
-  // 卡片上的"其他"自由输入（直接作为文本发送，不需要再弹一轮）
   const handleCardFreeText = async (text: string) => {
     if (!sessionId || isLoading || isComplete || !text.trim()) return;
 
     setMessages((prev) => [
       ...prev,
-      { id: `user-${Date.now()}`, role: 'user', content: text },
+      { id: createMessageId('user'), role: 'user', content: text.trim() },
     ]);
 
-    await sendToAgent({ free_text: text });
+    const activeBlock = getLatestUIBlock(messages);
+    await sendToAgent({ ui_block_id: activeBlock?.id, free_text: text.trim() });
   };
 
-  // 找到最后一条带 uiBlock 的 agent 消息的 index
+  const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void handleSendText();
+    }
+  };
+
   const lastAgentBlockIdx = [...messages]
-    .map((m, i) => (m.role === 'agent' && m.uiBlock ? i : -1))
-    .filter((i) => i >= 0)
+    .map((message, index) => (message.role === 'agent' && message.uiBlock ? index : -1))
+    .filter((index) => index >= 0)
     .pop();
 
   return (
@@ -129,27 +190,18 @@ export default function ChatContainer() {
       </header>
 
       <div className={styles.messageList}>
-        {messages.map((msg, idx) => (
+        {messages.map((msg, index) => (
           <MessageBubble
             key={msg.id}
             message={msg}
             onOptionSelect={handleOptionSelect}
             onMultiSelect={handleMultiSelect}
             onFreeText={handleCardFreeText}
-            isLatestAgentMsg={idx === lastAgentBlockIdx}
+            isLatestAgentMsg={index === lastAgentBlockIdx}
           />
         ))}
         {isLoading && (
-          <div
-            style={{
-              display: 'flex',
-              gap: '8px',
-              color: 'var(--color-text-muted)',
-              fontSize: '0.9rem',
-              alignItems: 'center',
-              padding: '8px 0',
-            }}
-          >
+          <div className={styles.loadingLine}>
             <Loader2 size={16} className="spin" /> 智能体正在分析你的描述...
           </div>
         )}
@@ -161,13 +213,9 @@ export default function ChatContainer() {
           <input
             type="text"
             className={styles.input}
-            placeholder={
-              isComplete
-                ? '本次定位已完成'
-                : '像发微信一样描述你的困惑...'
-            }
+            placeholder={isComplete ? '本次定位已完成' : '像发微信一样描述你的困惑...'}
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={(event) => setInputValue(event.target.value)}
             onKeyDown={handleKeyPress}
             disabled={isComplete || isLoading}
           />
