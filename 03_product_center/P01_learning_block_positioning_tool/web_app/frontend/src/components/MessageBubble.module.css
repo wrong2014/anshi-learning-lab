@@ -1,0 +1,66 @@
+.bubbleContainer {
+  display: flex;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.userContainer {
+  justify-content: flex-end;
+}
+
+.agentContainer {
+  justify-content: flex-start;
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  position: relative;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.userBubble {
+  background: var(--color-primary);
+  color: white;
+  border-bottom-right-radius: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+.agentBubble {
+  background: var(--color-surface);
+  color: var(--color-text-main);
+  border: 1px solid var(--color-border);
+  border-bottom-left-radius: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 12px;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.agentAvatar {
+  background: linear-gradient(135deg, var(--color-primary-light), var(--color-secondary));
+  color: white;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

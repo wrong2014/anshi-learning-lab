@@ -1,0 +1,146 @@
+.card {
+  background: var(--color-surface-solid);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  animation: slideUp 0.3s ease-out;
+}
+
+.cardTitle {
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: var(--color-text-main);
+  margin-bottom: 4px;
+}
+
+.option {
+  padding: 12px 16px;
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.95rem;
+  color: var(--color-text-main);
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.option:hover {
+  background: var(--color-primary-subtle);
+  border-color: var(--color-primary-light);
+  color: var(--color-primary);
+  transform: translateX(4px);
+}
+
+.optionSelected {
+  background: var(--color-primary-subtle);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.checkbox {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-border-dark);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.checkboxChecked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.confirmBtn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  align-self: flex-end;
+}
+
+.confirmBtn:hover {
+  background: var(--color-primary-light);
+  transform: scale(1.02);
+}
+
+.confirmBtn:disabled {
+  background: var(--color-text-muted);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.otherInput {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.otherTextField {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+  font-size: 0.9rem;
+  color: var(--color-text-main);
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.otherTextField:focus {
+  border-color: var(--color-primary-light);
+  box-shadow: 0 0 0 3px var(--color-primary-subtle);
+}
+
+.otherTextField::placeholder {
+  color: var(--color-text-muted);
+}
+
+.otherSendBtn {
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.otherSendBtn:hover {
+  background: var(--color-primary-light);
+}
+
+.otherSendBtn:disabled {
+  background: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

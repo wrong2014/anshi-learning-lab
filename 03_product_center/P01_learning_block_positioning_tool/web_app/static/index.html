@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>理科学习卡点定位</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="chat-app">
+      <header class="chat-topbar">
+        <div class="agent-id">
+          <span class="agent-avatar">安</span>
+          <div>
+            <strong>理科学习卡点小助手</strong>
+            <p>把最近一次卡住说给我听</p>
+          </div>
+        </div>
+        <button id="restartButton" class="reset-button" type="button">重来</button>
+      </header>
+
+      <section class="chat-shell" aria-label="诊断对话">
+        <div id="chatLog" class="chat-log" aria-live="polite"></div>
+        <div id="quickPanel" class="quick-panel"></div>
+
+        <form id="composer" class="composer">
+          <textarea
+            id="messageInput"
+            rows="1"
+            placeholder="比如：孩子物理听懂了，但综合题不知道从哪开始，我一急就讲完整解法..."
+          ></textarea>
+          <button id="sendButton" class="send-button" type="submit">发送</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

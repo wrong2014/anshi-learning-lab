@@ -1,0 +1,47 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*
+*secrets*
+*credential*
+*credentials*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node/frontend
+node_modules/
+dist/
+build/
+.vite/
+.next/
+coverage/
+
+# Logs and runtime output
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# Generated local files
+*.tmp
+*.bak
+
+# Local diagnostic session logs
+**/web_app/data/sessions/*.jsonl

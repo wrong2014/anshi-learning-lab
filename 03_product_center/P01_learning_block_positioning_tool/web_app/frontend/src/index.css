@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Colors */
+  --color-primary: #5a4fcf; /* Deep indigo */
+  --color-primary-light: #8378f5;
+  --color-primary-subtle: #eeedfc;
+  --color-secondary: #00b4d8; /* Cyan */
+  --color-background: #f8f9fc;
+  --color-surface: rgba(255, 255, 255, 0.7);
+  --color-surface-solid: #ffffff;
+  --color-surface-hover: rgba(255, 255, 255, 0.9);
+  
+  --color-text-main: #1e293b;
+  --color-text-muted: #64748b;
+  --color-text-inverse: #ffffff;
+  
+  --color-border: rgba(255, 255, 255, 0.6);
+  --color-border-dark: rgba(0, 0, 0, 0.06);
+
+  --color-error: #ef4444;
+  --color-success: #10b981;
+
+  /* Shadows */
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.03), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
+  --shadow-glass: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-main);
+  background: var(--color-background);
+  background-image: 
+    radial-gradient(circle at 15% 50%, rgba(90, 79, 207, 0.06), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(0, 180, 216, 0.06), transparent 25%);
+  background-attachment: fixed;
+  color: var(--color-text-main);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+}
+
+/* Layout Utilities */
+#root {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.glass-panel {
+  background: var(--color-surface);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-glass);
+}
