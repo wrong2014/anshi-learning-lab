@@ -65,3 +65,34 @@ export interface Message {
   uiBlock?: UIBlock | null;
   result?: ResultData | null;
 }
+
+export interface StoredSessionSummary {
+  session_id: string;
+  title: string;
+  preview: string;
+  turn_count: number;
+  is_complete: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoredMessage {
+  role: 'user' | 'agent';
+  content: string;
+  uiBlock?: UIBlock | null;
+  result?: ResultData | null;
+}
+
+export interface StoredSessionDetail extends StoredSessionSummary {
+  messages: StoredMessage[];
+}
+
+export interface ProviderStatus {
+  enable_llm: boolean;
+  default_text_provider: string;
+  deepseek_ready: boolean;
+  doubao_ready: boolean;
+  deepseek_model?: string | null;
+  doubao_text_model?: string | null;
+  mode: string;
+}

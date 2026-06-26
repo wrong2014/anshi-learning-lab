@@ -2,8 +2,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import styles from './ChatContainer.module.css';
 import MessageBubble from './MessageBubble';
-import { startSession, submitAnswer } from '../api';
-import type { APIAnswerRequest, APIAnswerResponse, APIStartResponse, Message, UIBlock } from '../types';
+import { getSession, startSession, submitAnswer } from '../api';
+import type {
+  APIAnswerRequest,
+  APIAnswerResponse,
+  APIStartResponse,
+  Message,
+  StoredMessage,
+  UIBlock,
+} from '../types';
 
 function createMessageId(prefix: string) {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -42,12 +49,28 @@ function mapAgentMessages(res: APIStartResponse | APIAnswerResponse, prefix: str
   }));
 }
 
-export default function ChatContainer() {
+function mapStoredMessages(storedMessages: StoredMessage[]): Message[] {
+  return storedMessages.map((message, index) => ({
+    id: createMessageId(`history-${index}`),
+    role: message.role,
+    content: message.content,
+    uiBlock: message.uiBlock || undefined,
+    result: message.result || undefined,
+  }));
+}
+
+interface Props {
+  sessionToLoad?: string | null;
+  onSessionStarted?: (sessionId: string) => void;
+}
+
+export default function ChatContainer({ sessionToLoad = null, onSessionStarted }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [isReadOnlyHistory, setIsReadOnlyHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -60,9 +83,39 @@ export default function ChatContainer() {
 
   useEffect(() => {
     setIsLoading(true);
+    setMessages([]);
+    setInputValue('');
+
+    if (sessionToLoad) {
+      setIsReadOnlyHistory(true);
+      getSession(sessionToLoad)
+        .then((res) => {
+          setSessionId(res.session_id);
+          setIsComplete(true);
+          setMessages(mapStoredMessages(res.messages || []));
+        })
+        .catch((err) => {
+          console.error(err);
+          setMessages([
+            {
+              id: createMessageId('history-error'),
+              role: 'agent',
+              content: '这条历史会话没有加载成功。可以回到历史记录再试一次。',
+            },
+          ]);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+      return;
+    }
+
+    setIsReadOnlyHistory(false);
+    setIsComplete(false);
     startSession()
       .then((res) => {
         setSessionId(res.session_id);
+        onSessionStarted?.(res.session_id);
         setIsComplete(res.is_complete);
         setMessages(mapAgentMessages(res, 'start'));
       })
@@ -79,10 +132,10 @@ export default function ChatContainer() {
       .finally(() => {
         setIsLoading(false);
       });
-  }, []);
+  }, [onSessionStarted, sessionToLoad]);
 
   const sendToAgent = async (payload: Omit<APIAnswerRequest, 'session_id'>) => {
-    if (!sessionId || isLoading || isComplete) return;
+    if (!sessionId || isLoading || isComplete || isReadOnlyHistory) return;
 
     setIsLoading(true);
     try {
@@ -110,7 +163,7 @@ export default function ChatContainer() {
 
   const handleSendText = async () => {
     const text = inputValue.trim();
-    if (!text || !sessionId || isLoading || isComplete) return;
+    if (!text || !sessionId || isLoading || isComplete || isReadOnlyHistory) return;
 
     setInputValue('');
     setMessages((prev) => [
@@ -123,7 +176,7 @@ export default function ChatContainer() {
   };
 
   const handleOptionSelect = async (blockId: string, optionId: string, optionLabel: string) => {
-    if (!sessionId || isLoading || isComplete) return;
+    if (!sessionId || isLoading || isComplete || isReadOnlyHistory) return;
 
     setMessages((prev) => [
       ...prev,
@@ -138,7 +191,7 @@ export default function ChatContainer() {
   };
 
   const handleMultiSelect = async (blockId: string, optionIds: string[], optionLabels: string[]) => {
-    if (!sessionId || isLoading || isComplete) return;
+    if (!sessionId || isLoading || isComplete || isReadOnlyHistory) return;
 
     setMessages((prev) => [
       ...prev,
@@ -157,7 +210,7 @@ export default function ChatContainer() {
   };
 
   const handleCardFreeText = async (text: string) => {
-    if (!sessionId || isLoading || isComplete || !text.trim()) return;
+    if (!sessionId || isLoading || isComplete || isReadOnlyHistory || !text.trim()) return;
 
     setMessages((prev) => [
       ...prev,
@@ -180,12 +233,20 @@ export default function ChatContainer() {
     .filter((index) => index >= 0)
     .pop();
 
+  const placeholder = isReadOnlyHistory
+    ? '历史会话只读'
+    : isComplete
+      ? '本次定位已完成'
+      : '像发微信一样描述你的困惑...';
+
   return (
     <div className={styles.chatContainer}>
       <header className={styles.header}>
         <div>
           <h2 className={styles.title}>理科学习卡点定位</h2>
-          <p className={styles.subtitle}>AI 对话式智能体 · Powered by DeepSeek</p>
+          <p className={styles.subtitle}>
+            {isReadOnlyHistory ? '历史会话 · 只读查看' : 'AI 对话式智能体 · Powered by DeepSeek'}
+          </p>
         </div>
       </header>
 
@@ -197,7 +258,7 @@ export default function ChatContainer() {
             onOptionSelect={handleOptionSelect}
             onMultiSelect={handleMultiSelect}
             onFreeText={handleCardFreeText}
-            isLatestAgentMsg={index === lastAgentBlockIdx}
+            isLatestAgentMsg={!isReadOnlyHistory && index === lastAgentBlockIdx}
           />
         ))}
         {isLoading && (
@@ -213,16 +274,16 @@ export default function ChatContainer() {
           <input
             type="text"
             className={styles.input}
-            placeholder={isComplete ? '本次定位已完成' : '像发微信一样描述你的困惑...'}
+            placeholder={placeholder}
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
             onKeyDown={handleKeyPress}
-            disabled={isComplete || isLoading}
+            disabled={isComplete || isLoading || isReadOnlyHistory}
           />
           <button
             className={styles.sendButton}
             onClick={handleSendText}
-            disabled={!inputValue.trim() || isComplete || isLoading}
+            disabled={!inputValue.trim() || isComplete || isLoading || isReadOnlyHistory}
           >
             <Send size={18} />
           </button>

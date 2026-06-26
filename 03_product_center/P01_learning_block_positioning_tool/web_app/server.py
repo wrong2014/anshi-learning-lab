@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE_ROOT = ROOT / "agent_engine"
@@ -41,6 +42,124 @@ def persist_event(session_id: str, event_type: str, payload) -> None:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def read_session_events(session_id: str) -> list[dict]:
+    if not session_id or "/" in session_id or "\\" in session_id:
+        raise FileNotFoundError(session_id)
+    target = DATA_ROOT / f"{session_id}.jsonl"
+    if not target.exists():
+        raise FileNotFoundError(session_id)
+
+    events: list[dict] = []
+    with target.open("r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
+def display_time(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
+
+
+def user_payload_text(payload: dict) -> str:
+    free_text = payload.get("free_text")
+    if free_text:
+        return str(free_text)
+    labels = payload.get("selected_labels") or []
+    if labels:
+        return "、".join(str(item) for item in labels)
+    option_ids = payload.get("selected_option_ids") or []
+    if option_ids:
+        return "、".join(str(item) for item in option_ids)
+    return "先跳过"
+
+
+def summarize_session_file(path: Path) -> dict:
+    events = read_session_events(path.stem)
+    first_user = ""
+    last_text = ""
+    user_turns = 0
+    is_complete = False
+
+    for event in events:
+        event_type = event.get("event_type")
+        payload = event.get("payload") or {}
+        if event_type == "user_input":
+            text = user_payload_text(payload)
+            user_turns += 1
+            if not first_user and text != "先跳过":
+                first_user = text
+            last_text = text
+        elif event_type == "agent_response":
+            messages = payload.get("messages") or []
+            if messages:
+                last_text = str(messages[-1].get("text") or last_text)
+            if payload.get("should_conclude"):
+                is_complete = True
+        elif event_type == "result_generated":
+            is_complete = True
+
+    stat = path.stat()
+    title = first_user[:32] if first_user else "新对话"
+    return {
+        "session_id": path.stem,
+        "title": title,
+        "preview": last_text[:80] if last_text else "尚未输入内容",
+        "turn_count": user_turns,
+        "is_complete": is_complete,
+        "created_at": display_time(stat.st_ctime),
+        "updated_at": display_time(stat.st_mtime),
+    }
+
+
+def reconstruct_session_messages(events: list[dict]) -> tuple[list[dict], bool]:
+    messages: list[dict] = []
+    last_agent_index: int | None = None
+    is_complete = False
+
+    for event in events:
+        event_type = event.get("event_type")
+        payload = event.get("payload") or {}
+
+        if event_type == "user_input":
+            messages.append({
+                "role": "user",
+                "content": user_payload_text(payload),
+            })
+            continue
+
+        if event_type == "agent_response":
+            for agent_message in payload.get("messages") or []:
+                messages.append({
+                    "role": "agent",
+                    "content": agent_message.get("text") or "",
+                    "uiBlock": agent_message.get("ui_block"),
+                })
+                last_agent_index = len(messages) - 1
+            if payload.get("should_conclude"):
+                is_complete = True
+            continue
+
+        if event_type == "result_generated":
+            result = payload
+            is_complete = True
+            if last_agent_index is not None:
+                messages[last_agent_index]["result"] = result
+            else:
+                messages.append({
+                    "role": "agent",
+                    "content": "我先把这次卡点整理成一个可执行的判断。",
+                    "result": result,
+                })
+
+    return messages, is_complete
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "P01DiagnosticAgent/2.0"
 
@@ -69,6 +188,40 @@ class Handler(BaseHTTPRequestHandler):
                 "result": turn_result.result,
             }
             self.send_json(response)
+            return
+
+        if parsed.path == "/api/sessions":
+            session_files = sorted(
+                DATA_ROOT.glob("*.jsonl"),
+                key=lambda item: item.stat().st_mtime,
+                reverse=True,
+            )
+            summaries = [summarize_session_file(path) for path in session_files]
+            self.send_json({
+                "sessions": [
+                    summary
+                    for summary in summaries
+                    if summary["turn_count"] > 0
+                ]
+            })
+            return
+
+        if parsed.path.startswith("/api/sessions/"):
+            session_id = unquote(parsed.path.rsplit("/", 1)[-1])
+            try:
+                events = read_session_events(session_id)
+            except FileNotFoundError:
+                self.send_json({"error": "Session not found"}, status=404)
+                return
+
+            messages, is_complete = reconstruct_session_messages(events)
+            target = DATA_ROOT / f"{session_id}.jsonl"
+            summary = summarize_session_file(target)
+            self.send_json({
+                **summary,
+                "messages": messages,
+                "is_complete": is_complete,
+            })
             return
 
         if parsed.path == "/api/status":
