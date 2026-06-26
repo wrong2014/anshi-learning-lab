@@ -14,15 +14,31 @@
 
 ## 本地启动
 
+详细启动流程见：
+
+```text
+03_product_center/P01_learning_block_positioning_tool/STARTUP_RUNBOOK_FOR_AI.md
+```
+
+后端：
+
 ```powershell
 cd D:\wbh\social-media\anshi-learning-lab\03_product_center\P01_learning_block_positioning_tool
-.\run_p01_web.ps1
+python .\web_app\server.py
+```
+
+前端：
+
+```powershell
+cd D:\wbh\social-media\anshi-learning-lab\03_product_center\P01_learning_block_positioning_tool\web_app\frontend
+npm install
+npm run dev
 ```
 
 打开：
 
 ```text
-http://127.0.0.1:8765
+http://localhost:5173/
 ```
 
 ## LLM 配置
@@ -84,4 +100,3 @@ DeepSeek：
 - 商业级权限隔离。
 
 这些不影响 P01 V1 的“自然对话 + 结构化定位 + 结果卡”主流程。
-
