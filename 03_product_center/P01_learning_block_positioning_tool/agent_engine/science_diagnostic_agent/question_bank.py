@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import FactorCode
+from .models import FactorCode, StuckCategory, Amplifier
 from .models import UIBlock, UIBlockType, UIOption
 
 
@@ -128,154 +128,103 @@ def subject_specific_question(subject_value: str) -> UIBlock:
     )
 
 
-def adaptive_probe_question(top_factors: list[FactorCode]) -> UIBlock:
-    factor_set = set(top_factors)
+# ---- V2 类别追问 ----
 
-    if FactorCode.F10_SUPPORT_AI in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="我再确认一个关键点：孩子卡住时，帮助方式更像哪一种？",
-            body="这个问题会影响后面的支持建议。",
-            options=[
-                UIOption(id="probe_ai_answer_first", label="AI 或大人很快给完整答案"),
-                UIOption(id="probe_parent_takes_over", label="父母会接管思路，孩子主要听"),
-                UIOption(id="probe_cannot_name_breakpoint", label="孩子说不清自己从哪一步不会"),
-                UIOption(id="probe_only_reads_answer", label="主要看懂答案，但缺少隔天复测"),
-            ],
-            allow_skip=True,
-        )
+CATEGORY_PROBE_OPTIONS: dict[StuckCategory, list[UIOption]] = {
+    StuckCategory.A_CONCEPT: [
+        UIOption(id='cat_A_knows_nothing', label='题目一出现，就不知道这些概念是什么意思'),
+        UIOption(id='cat_A_knows_formula', label='能说出公式，但不知道为什么要这样用'),
+        UIOption(id='cat_A_understands_answer', label='看答案能懂，自己做又不会'),
+        UIOption(id='cat_A_unsure', label='不确定'),
+    ],
+    StuckCategory.B_RULE_BOUNDARY: [
+        UIOption(id='cat_B_rule_wrong', label='规则或定律本身记错了'),
+        UIOption(id='cat_B_rule_when', label='规则记得，但不知道什么时候能用'),
+        UIOption(id='cat_B_rule_variant', label='题目稍微换个问法，就不知道该用哪条'),
+        UIOption(id='cat_B_rule_confident_wrong', label='做错时往往还觉得自己是对的'),
+        UIOption(id='cat_B_unsure', label='不确定'),
+    ],
+    StuckCategory.C_INFO_SYMBOL: [
+        UIOption(id='cat_C_miss_read', label='读题时，限制词、单位、条件没注意到'),
+        UIOption(id='cat_C_miss_list', label='列式或画图时，条件看到了但没放进去'),
+        UIOption(id='cat_C_miss_diagram', label='图形或示意图里的标记、符号容易看漏'),
+        UIOption(id='cat_C_miss_midway', label='步骤一多，做到中间忘了前面的条件'),
+        UIOption(id='cat_C_unsure', label='不确定'),
+    ],
+    StuckCategory.D_EXECUTION: [
+        UIOption(id='cat_D_basic_ops', label='加减乘除、进退位、借位容易错'),
+        UIOption(id='cat_D_sign_paren', label='符号、括号、移项容易漏'),
+        UIOption(id='cat_D_decimal_fraction', label='小数点、分数约分、通分容易错'),
+        UIOption(id='cat_D_mid_step_miss', label='思路对，但中间总少一步或多一步'),
+        UIOption(id='cat_D_unsure', label='不确定'),
+    ],
+    StuckCategory.E_MODELING: [
+        UIOption(id='cat_E_cant_read', label='题目读不进去，不知道已知什么'),
+        UIOption(id='cat_E_cant_formulate', label='知道题目说了什么，但不会列式或画图'),
+        UIOption(id='cat_E_wrong_relation', label='能列式，但列出来的关系总不对'),
+        UIOption(id='cat_E_template_only', label='例题会，换成生活题或综合题就不会'),
+        UIOption(id='cat_E_unsure', label='不确定'),
+    ],
+}
 
-    if FactorCode.F04_REPRESENTATION in factor_set and FactorCode.F05_MODEL_TRANSFER in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="最后区分一下：更像是哪种“不会启动”？",
-            options=[
-                UIOption(id="probe_text_to_diagram_hard", label="题目文字转不成图、式子或关系"),
-                UIOption(id="probe_diagram_to_formula_hard", label="图或关系有了，但不知道用哪个公式/方法"),
-                UIOption(id="probe_template_ok_variant_fail", label="例题同款能做，换情境就不会"),
-                UIOption(id="probe_knows_relation_not_formula", label="知道大概有关，但说不清量之间怎么连起来"),
-            ],
-            allow_skip=True,
-        )
+AMPLIFIER_PROBE_OPTIONS: dict[Amplifier, list[UIOption]] = {
+    Amplifier.F_FIX_LOOP: [
+        UIOption(id='amp_F_find_breakpoint', label='能自己找到第一处错在哪里'),
+        UIOption(id='amp_F_read_answer', label='看完整答案后觉得自己懂了'),
+        UIOption(id='amp_F_parent_explain', label='家长或大人会直接讲完整解法'),
+        UIOption(id='amp_F_redo_similar', label='立刻再刷类似题'),
+        UIOption(id='amp_F_ai_search', label='很快找 AI 或搜答案'),
+        UIOption(id='amp_F_unsure', label='不确定'),
+    ],
+    Amplifier.G_EXAM_PACE: [
+        UIOption(id='amp_G_homework_ok_exam_fail', label='平时会，考试就错'),
+        UIOption(id='amp_G_first_half_ok', label='前半卷还可以，后半卷明显乱'),
+        UIOption(id='amp_G_stuck_affects', label='一道题卡住就影响后面的题'),
+        UIOption(id='amp_G_time_short', label='时间总是不够'),
+        UIOption(id='amp_G_always_unstable', label='平时也不稳'),
+        UIOption(id='amp_G_unsure', label='不确定'),
+    ],
+    Amplifier.H_AVOIDANCE: [
+        UIOption(id='amp_H_try_first', label='先自己试一下再来问'),
+        UIOption(id='amp_H_instant_answer', label='一卡住就马上找答案或 AI'),
+        UIOption(id='amp_H_frustrated', label='一错就烦，不愿再看'),
+        UIOption(id='amp_H_afraid', label='怕被批评，不愿说自己不会'),
+        UIOption(id='amp_H_no_avoidance', label='还没有明显回避'),
+    ],
+}
 
-    if FactorCode.F07_METACOGNITION in factor_set or FactorCode.F08_STRATEGY in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="错题之后通常会发生什么？",
-            options=[
-                UIOption(id="probe_cannot_name_breakpoint", label="孩子说不清第一处断点"),
-                UIOption(id="probe_only_reads_answer", label="看懂答案，但很少隔天独立重做"),
-                UIOption(id="probe_template_ok_variant_fail", label="同款题能做，换个说法又不会"),
-                UIOption(id="probe_ai_answer_first", label="容易直接让 AI 给答案"),
-            ],
-            allow_skip=True,
-        )
 
-    if FactorCode.F09_EMOTION in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="孩子遇到这类题时，最明显的反应是什么？",
-            options=[
-                UIOption(id="probe_emotion_blocks_start", label="明显烦躁、紧张或直接逃开"),
-                UIOption(id="probe_cannot_name_breakpoint", label="说不清哪里不会，只说不会"),
-                UIOption(id="probe_ai_answer_first", label="马上想找答案"),
-            ],
-            allow_skip=True,
-        )
-
-    # ---- P1 新增：覆盖之前缺失的 6 个因子 ----
-
-    if FactorCode.F02_CONCEPT in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="我再确认一下：孩子对概念的理解更像哪种？",
-            options=[
-                UIOption(id="probe_can_recite_not_explain", label="能背定义公式，但用自己的话说就卡住"),
-                UIOption(id="probe_confuses_similar_concepts", label="容易混淆相似概念"),
-                UIOption(id="probe_cannot_give_example", label="举不出生活里的例子或反例"),
-            ],
-            allow_skip=True,
-        )
-
-    if FactorCode.F03_LANGUAGE_SYMBOL in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="读题时，孩子最容易在哪一步出问题？",
-            options=[
-                UIOption(id="probe_misreads_keyword", label="关键词、条件或单位常常看错"),
-                UIOption(id="probe_cannot_parse_diagram", label="题目里的图、表看不懂或漏信息"),
-                UIOption(id="probe_symbol_confusion", label="符号或术语容易搞混"),
-            ],
-            allow_skip=True,
-        )
-
-    if FactorCode.F06_EXECUTION in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="做题过程中的错，更像是哪一种？",
-            options=[
-                UIOption(id="probe_calculation_error", label="计算或单位转换常出错"),
-                UIOption(id="probe_skip_steps", label="步骤跳太快，中间缺了关键一步"),
-                UIOption(id="probe_no_check", label="做完不检查，或检查也看不出来"),
-            ],
-            allow_skip=True,
-        )
-
-    if FactorCode.F11_ATTENTION_EXECUTIVE in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="题目复杂度变化时，表现差异明显吗？",
-            options=[
-                UIOption(id="probe_simple_ok_complex_fail", label="简单题没问题，综合题就乱"),
-                UIOption(id="probe_loses_condition", label="多条件时经常漏掉一两个"),
-                UIOption(id="probe_mid_step_forget", label="做到一半忘了前面算什么"),
-            ],
-            allow_skip=True,
-        )
-
-    if FactorCode.F12_MISCONCEPTION in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="孩子坚持的判断，更像哪种情况？",
-            options=[
-                UIOption(id="probe_wrong_causal", label="因果方向搞反了"),
-                UIOption(id="probe_intuitive_rule", label="用生活直觉代替学科规则"),
-                UIOption(id="probe_previous_mislearn", label="之前学的内容本身就理解错了"),
-            ],
-            allow_skip=True,
-        )
-
-    if FactorCode.F01_PRIOR_KNOWLEDGE in factor_set:
-        return UIBlock(
-            id="adaptive_probe",
-            type=UIBlockType.SINGLE_CHOICE,
-            title="遇到问题时，旧知识能调用出来吗？",
-            options=[
-                UIOption(id="probe_forgot_previous", label="之前学过的内容忘了，需要回头翻"),
-                UIOption(id="probe_knows_but_cant_use", label="知道学过，但想不起来怎么用"),
-                UIOption(id="probe_gap_specific_topic", label="只有某个特定章节/知识点有问题"),
-            ],
-            allow_skip=True,
-        )
-
+def category_probe(category: StuckCategory) -> UIBlock:
+    '''V2：按主卡点类别给关键追问'''
+    options = CATEGORY_PROBE_OPTIONS.get(category, CATEGORY_PROBE_OPTIONS[StuckCategory.D_EXECUTION])
+    titles = {
+        StuckCategory.A_CONCEPT: '孩子遇到这类题时，更像哪一种？',
+        StuckCategory.B_RULE_BOUNDARY: '孩子做错的时候，更像哪一种？',
+        StuckCategory.C_INFO_SYMBOL: '这种错最常发生在哪一刻？',
+        StuckCategory.D_EXECUTION: '你看到的计算错误，更像哪一种？',
+        StuckCategory.E_MODELING: '孩子卡住时，更像哪一种？',
+    }
     return UIBlock(
-        id="adaptive_probe",
+        id='category_probe',
         type=UIBlockType.SINGLE_CHOICE,
-        title="最后确认一下：哪句话最像这次卡住？",
-        options=[
-            UIOption(id="probe_template_ok_variant_fail", label="例题同款能做，变式不会"),
-            UIOption(id="probe_text_to_diagram_hard", label="题目转不成图、式子或关系"),
-            UIOption(id="probe_cannot_name_breakpoint", label="说不清第一处断点"),
-            UIOption(id="probe_only_reads_answer", label="看懂答案，但缺少复测"),
-        ],
+        title=titles.get(category, '更像哪一种？'),
+        options=list(options),
+        allow_skip=True,
+    )
+
+
+def amplifier_probe(amplifier: Amplifier) -> UIBlock:
+    '''V2：按放大器类别给追问'''
+    options = AMPLIFIER_PROBE_OPTIONS.get(amplifier, [])
+    titles = {
+        Amplifier.F_FIX_LOOP: '孩子做错以后，通常最像哪一种？',
+        Amplifier.G_EXAM_PACE: '平时作业和考试相比，差别更像哪一种？',
+        Amplifier.H_AVOIDANCE: '孩子遇到难题时，更像哪一种？',
+    }
+    return UIBlock(
+        id='amplifier_probe',
+        type=UIBlockType.SINGLE_CHOICE,
+        title=titles.get(amplifier, '更像哪一种？'),
+        options=list(options),
         allow_skip=True,
     )

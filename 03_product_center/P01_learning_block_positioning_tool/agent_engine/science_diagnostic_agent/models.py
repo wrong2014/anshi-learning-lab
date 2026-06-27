@@ -35,6 +35,58 @@ class FactorCode(str, Enum):
     F12_MISCONCEPTION = "F12_misconception_naive_theory_interference"
 
 
+class StuckCategory(str, Enum):
+    """V2 主卡点：5 类"""
+    A_CONCEPT = "A_basic_concept"                # 基础概念没有建立
+    B_RULE_BOUNDARY = "B_rule_boundary"           # 规则边界或方法选择不清
+    C_INFO_SYMBOL = "C_info_symbol_processing"    # 题目信息/符号/图形没有进入解题
+    D_EXECUTION = "D_execution_stability"         # 计算执行过程不稳
+    E_MODELING = "E_modeling_transfer"            # 关系建模与迁移困难
+
+
+class Amplifier(str, Enum):
+    """V2 放大因素：3 类"""
+    F_FIX_LOOP = "F_fix_loop_broken"             # 错题修复还没形成闭环
+    G_EXAM_PACE = "G_exam_pace"                   # 考试过程与节奏问题
+    H_AVOIDANCE = "H_math_avoidance"              # 回避、紧张或挫败感
+
+
+# V2 中文标签映射
+CATEGORY_LABELS: dict[StuckCategory, str] = {
+    StuckCategory.A_CONCEPT: "基础概念没有建立",
+    StuckCategory.B_RULE_BOUNDARY: "规则边界或方法选择不清",
+    StuckCategory.C_INFO_SYMBOL: "题目信息或符号没有进入解题过程",
+    StuckCategory.D_EXECUTION: "计算执行过程不稳",
+    StuckCategory.E_MODELING: "关系建模与迁移困难",
+}
+
+AMPLIFIER_LABELS: dict[Amplifier, str] = {
+    Amplifier.F_FIX_LOOP: "错题修复还没形成闭环",
+    Amplifier.G_EXAM_PACE: "考试过程与节奏可能有问题",
+    Amplifier.H_AVOIDANCE: "学习过程中已经出现回避情绪",
+}
+
+# 旧 12 因子 → V2 5 类主卡点映射
+FACTOR_TO_CATEGORY: dict[FactorCode, StuckCategory] = {
+    FactorCode.F01_PRIOR_KNOWLEDGE: StuckCategory.A_CONCEPT,
+    FactorCode.F02_CONCEPT: StuckCategory.A_CONCEPT,
+    FactorCode.F12_MISCONCEPTION: StuckCategory.A_CONCEPT,
+    FactorCode.F05_MODEL_TRANSFER: StuckCategory.B_RULE_BOUNDARY,
+    FactorCode.F03_LANGUAGE_SYMBOL: StuckCategory.C_INFO_SYMBOL,
+    FactorCode.F04_REPRESENTATION: StuckCategory.C_INFO_SYMBOL,
+    FactorCode.F06_EXECUTION: StuckCategory.D_EXECUTION,
+    FactorCode.F11_ATTENTION_EXECUTIVE: StuckCategory.D_EXECUTION,
+}
+
+# 旧 12 因子 → V2 3 类放大器映射
+FACTOR_TO_AMPLIFIER: dict[FactorCode, Amplifier] = {
+    FactorCode.F07_METACOGNITION: Amplifier.F_FIX_LOOP,
+    FactorCode.F08_STRATEGY: Amplifier.F_FIX_LOOP,
+    FactorCode.F10_SUPPORT_AI: Amplifier.F_FIX_LOOP,
+    FactorCode.F09_EMOTION: Amplifier.H_AVOIDANCE,
+}
+
+
 class Confidence(str, Enum):
     LOW = "low"
     MEDIUM = "medium"

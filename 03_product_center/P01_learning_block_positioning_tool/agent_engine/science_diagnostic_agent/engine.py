@@ -23,13 +23,13 @@ from .models import (
     UIBlock,
 )
 from .question_bank import (
-    adaptive_probe_question,
+    category_probe,
+    amplifier_probe,
     child_checkpoint_question,
     opening_story_question,
     parent_support_question,
     stuck_step_question,
     subject_question,
-    subject_specific_question,
 )
 
 
@@ -73,15 +73,17 @@ class DiagnosticEngine:
             Subject.CHEMISTRY: "chemistry_probe",
         }.get(session.subject)
         if subject_probe_id and subject_probe_id not in completed:
-            return subject_specific_question(session.subject.value)
+            # V2: 使用类别追问替代旧的学科特定问题
+            from .models import StuckCategory as _SC
+            return category_probe(_SC.D_EXECUTION)
 
         if "parent_support" not in completed:
             return parent_support_question()
         if "child_checkpoint" not in completed:
             return child_checkpoint_question()
         if "adaptive_probe" not in completed:
-            scoring = self.score_session(session)
-            return adaptive_probe_question(scoring.top_factors)
+            from .models import StuckCategory as _SC
+            return category_probe(_SC.D_EXECUTION)
         return None
 
     def score_session(self, session: DiagnosticSession) -> FactorScoringResult:

@@ -20,12 +20,21 @@ from .factor_rules import (
     FACTOR_PUBLIC_LABELS,
     OPTION_PUBLIC_LABELS,
     accumulate_scores,
+    accumulate_category_scores,
+    top_category,
     infer_option_ids_from_text,
     infer_subject_from_text,
 )
 from .llm_providers import LLMAdapter, ProviderRegistry
-from .models import FactorCode, Subject
+from .models import (
+    FactorCode, Subject,
+    StuckCategory, Amplifier,
+    CATEGORY_LABELS, AMPLIFIER_LABELS,
+)
 from .prompts import SYSTEM_PROMPT, FIRST_TURN_USER_MESSAGE
+from .question_bank import category_probe as v2_category_probe
+from .question_bank import amplifier_probe as v2_amplifier_probe
+from .verification_actions import get_verification_action, get_uncertainties
 
 
 @dataclass
@@ -58,6 +67,12 @@ class ConversationSession:
     fallback_option_ids: list[str] = field(default_factory=list)
     fallback_asked_block_ids: set[str] = field(default_factory=set)
     fallback_grade: int = 0  # 0=未识别, 1-12=年级
+    # V2 字段
+    v2_stage: str = "opening"  # opening|paraphrase|narrow|probe|amplifier|verify|report
+    identified_category: str = ""    # 主卡点 A|B|C|D|E
+    identified_amplifier: str = ""    # 放大器 F|G|H
+    free_text_evidence: list[str] = field(default_factory=list)  # 家长原话
+    verification_done: bool = False
 
 
 class ConversationAgent:
@@ -121,9 +136,10 @@ class ConversationAgent:
 
         if not self.adapter.is_ready():
             # LLM 不可用时的降级处理
+            session.v2_stage = "opening"
             return session, AgentTurnResult(
                 messages=[AgentMessage(
-                    text="嗨，我是你的学习诊断助手～你先跟我聊聊：孩子最近学数学、物理或者化学，有没有哪件事让你特别头疼？就像跟朋友发微信一样说就行——哪一科、当时发生了什么、孩子什么反应、你当时怎么弄的。不用写很长，几句话就好。"
+                    text="你先把孩子最近在数学或物理上最让你头疼的一件事告诉我。可以直接说：哪类题、什么时候容易错、考试还是作业、你已经试过什么。不用先判断是不是粗心，我会先帮你把问题缩小到更具体的一类。"
                 )]
             )
 
@@ -162,8 +178,13 @@ class ConversationAgent:
         session.history.append({"role": "user", "content": user_message})
         session.turn_count += 1
 
+        # V2: 收集家长原话作为证据
+        if text and text.strip():
+            stripped = text.strip()
+            if stripped not in session.free_text_evidence:
+                session.free_text_evidence.append(stripped)
+
         # P0 修复：无论 LLM 是否可用，始终收集规则信号
-        # 这样 LLM 模式下用户的选项选择也会被记录到评分管道
         self._record_rule_signals(
             session=session,
             text=text,
@@ -216,105 +237,32 @@ class ConversationAgent:
         return cls._LABEL_TO_FACTOR
 
     def _ground_with_rules(self, session: ConversationSession, llm_result: AgentTurnResult) -> AgentTurnResult:
-        """P0 修复：用规则评分校验 LLM 结论，双路径交叉验证。
-
-        1. 从 session.fallback_option_ids 计算规则评分
-        2. LLM primary_factor（中文）→ FactorCode 反向查找
-        3. 一致 → 高置信，使用 LLM 文案
-        4. 不一致 → 以规则评分为主，标记需人工复核
-        5. 合并 evidence/missing_information
-        """
+        """V2：用规则评分校验 LLM 结论。LLM 主要驱动，规则兜底补充 evidence + uncertainties。"""
         llm_data = llm_result.result or {}
-        rule_scores = accumulate_scores(session.fallback_subject, session.fallback_option_ids)
 
-        # 规则评分排序
-        sorted_rules = sorted(rule_scores.items(), key=lambda item: item[1], reverse=True)
-        rule_top1 = sorted_rules[0][0] if sorted_rules else None
-        rule_top3 = [factor for factor, _ in sorted_rules[:3]]
-
-        # LLM primary_factor 反向查找 FactorCode
-        llm_primary_label = str(llm_data.get("primary_factor") or "")
-        label_map = self._label_to_factor_map()
-        llm_primary_code = label_map.get(llm_primary_label)
-
-        # ----- 交叉校验 -----
-        is_aligned = (llm_primary_code is not None and llm_primary_code == rule_top1)
-
-        if is_aligned:
-            # 一致：信任 LLM 文案，补充规则 evidence
-            primary_code = llm_primary_code
-            secondary_codes = [
-                label_map.get(label)
-                for label in (llm_data.get("secondary_factors") or [])
-                if label_map.get(label) and label_map.get(label) != primary_code
-            ][:2]
-            human_review = False
-        elif rule_top1 and rule_scores.get(rule_top1, 0) >= 1.5:
-            # 不一致但规则有足够信号：以规则为主
-            primary_code = rule_top1
-            secondary_codes = rule_top3[1:3] if len(rule_top3) >= 2 else []
-            # 如果 LLM 也有判断，作为次因子备选
-            if llm_primary_code and llm_primary_code not in secondary_codes and llm_primary_code != primary_code:
-                secondary_codes.append(llm_primary_code)
-            secondary_codes = secondary_codes[:2]
-            human_review = True
-        else:
-            # 规则信号太弱，保留 LLM 原始判断但标记低置信
-            primary_code = llm_primary_code or rule_top1
-            secondary_codes = (
-                [label_map.get(label) for label in (llm_data.get("secondary_factors") or []) if label_map.get(label)]
-                if llm_primary_code
-                else rule_top3[1:3]
+        # LLM 已输出 V2 格式 → 直接验证并补充
+        if llm_data.get("primary_category"):
+            # 补充规则 evidence
+            rule_evidence = [
+                OPTION_PUBLIC_LABELS.get(oid, oid)
+                for oid in session.fallback_option_ids if oid in OPTION_PUBLIC_LABELS
+            ]
+            llm_evidence = llm_data.get("evidence") or []
+            llm_data["evidence"] = list(dict.fromkeys(llm_evidence + rule_evidence))[:6]
+            # 确保有 uncertainties
+            if not llm_data.get("uncertainties"):
+                llm_data["uncertainties"] = ["需要看真实试卷才能进一步确认具体是哪一种错误模式。"]
+            return AgentTurnResult(
+                messages=llm_result.messages, should_conclude=True,
+                result=llm_data, thinking=llm_result.thinking,
+                collected_signals=llm_result.collected_signals,
             )
-            human_review = True
 
-        primary_label = FACTOR_PUBLIC_LABELS.get(primary_code, str(primary_code))
-        action = FACTOR_ACTIONS.get(primary_code, FACTOR_ACTIONS[FactorCode.F07_METACOGNITION])
-
-        # ----- 合并 evidence -----
-        rule_evidence = [
-            OPTION_PUBLIC_LABELS.get(option_id, option_id)
-            for option_id in session.fallback_option_ids
-            if option_id in OPTION_PUBLIC_LABELS
-        ]
-        llm_evidence = llm_data.get("evidence") or []
-        merged_evidence = list(dict.fromkeys(llm_evidence + rule_evidence))[:6]
-        if not merged_evidence:
-            merged_evidence = ["当前主要依据来自家长自然描述，证据还偏少。"]
-
-        # ----- 合并 missing_information -----
-        llm_missing = llm_data.get("missing_information") or []
-        rule_missing: list[str] = []
-        if not session.fallback_option_ids:
-            rule_missing.append("还缺孩子自己的说法或一道具体错题。")
-        merged_missing = list(dict.fromkeys(llm_missing + rule_missing))
-
-        # ----- 构建最终 result -----
-        secondary_labels = [FACTOR_PUBLIC_LABELS.get(code, "") for code in secondary_codes if code]
-
-        grounded_result: dict[str, Any] = {
-            "subject": session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else llm_data.get("subject", "unknown"),
-            "primary_factor": primary_label,
-            "primary_desc": llm_data.get("primary_desc", f"目前线索最集中在「{primary_label}」。"),
-            "secondary_factors": secondary_labels,
-            "evidence": merged_evidence,
-            "missing_information": merged_missing,
-            "parent_common_mistake": action["mistake"],
-            "next_7_days_stop": action["stop"],
-            "next_7_days_start": action["start"],
-            "public_summary": llm_data.get("public_summary", (
-                f"目前更像是「{primary_label}」在优先影响这次理科学习。"
-                f"先不要把问题扩大成孩子不努力，未来 7 天只观察一个小动作：{action['start']}"
-            )),
-            "human_review_needed": human_review,
-            "cross_validation": "aligned" if is_aligned else "rule_override" if rule_top1 and rule_scores.get(rule_top1, 0) >= 1.5 else "weak_signal",
-        }
-
+        # LLM 输出的是旧格式 → 用 V2 报告覆盖
+        v2_report = self._compose_v2_report(session)
         return AgentTurnResult(
-            messages=llm_result.messages,
-            should_conclude=True,
-            result=grounded_result,
-            thinking=llm_result.thinking,
+            messages=llm_result.messages, should_conclude=True,
+            result=v2_report, thinking=llm_result.thinking,
             collected_signals=llm_result.collected_signals,
         )
 
@@ -509,434 +457,237 @@ class ConversationAgent:
             return g if 1 <= g <= 12 else 0
         return 0
 
+
+    # ============================================================
+    # V2 初筛智能体：5 步状态机
+    # ============================================================
+
     def _fallback_response(self, session: ConversationSession) -> AgentTurnResult:
-        """LLM 不可用时的降级回复"""
+        """V2 初筛流程：subject -> paraphrase+narrow -> category_probe -> amplifier -> report"""
         option_ids = set(session.fallback_option_ids)
+        stage = session.v2_stage
 
-        if session.fallback_subject == Subject.UNKNOWN and "fallback_subject_select" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
-                session,
-                text="我先确认一下，这件事主要是哪一科？如果你之前已经提过，就点一下就好。",
+        # Stage 0: 确定学科
+        if session.fallback_subject == Subject.UNKNOWN:
+            if "fallback_subject_select" not in session.fallback_asked_block_ids:
+                return self._fallback_question(
+                    session,
+                    text="我先确认一下，这件事主要是哪一科？",
+                    ui_block={
+                        "type": "single_choice", "id": "fallback_subject_select",
+                        "title": "主要是哪一科？", "allow_free_text": True,
+                        "free_text_label": "我自己说",
+                        "options": [
+                            {"id": "subject_math", "label": "数学"},
+                            {"id": "subject_physics", "label": "物理"},
+                        ],
+                    },
+                )
+
+        # Stage 1: 复述家长的话 + 给出 2 个候选方向
+        if stage in ("opening", "paraphrase"):
+            session.v2_stage = "narrow"
+            paraphrase = self._paraphrase_parent(session)
+            candidates = self._narrow_candidates(session)
+            return AgentTurnResult(messages=[AgentMessage(
+                text=candidates["text"],
+                ui_block=candidates["ui_block"],
+            )])
+
+        # Stage 2: 按类别追问
+        if stage == "narrow":
+            session.v2_stage = "amplifier"
+            cat_code = self._infer_category_from_options(session)
+            session.identified_category = cat_code
+            cat_map = {"A": StuckCategory.A_CONCEPT, "B": StuckCategory.B_RULE_BOUNDARY,
+                        "C": StuckCategory.C_INFO_SYMBOL, "D": StuckCategory.D_EXECUTION,
+                        "E": StuckCategory.E_MODELING}
+            cat = cat_map.get(cat_code, StuckCategory.D_EXECUTION)
+            probe = v2_category_probe(cat)
+            return AgentTurnResult(messages=[AgentMessage(
+                text=self._category_lead_in(cat_code),
                 ui_block={
-                    "type": "single_choice",
-                    "id": "fallback_subject_select",
-                    "title": "主要是哪一科？",
-                    "allow_free_text": True,
-                    "free_text_label": "我自己说",
-                    "free_text_placeholder": "比如：主要是物理电路题。",
-                    "options": [
-                        {"id": "subject_math", "label": "数学"},
-                        {"id": "subject_physics", "label": "物理"},
-                        {"id": "subject_chemistry", "label": "化学"},
-                    ],
+                    "type": probe.type.value, "id": "v2_category_probe",
+                    "title": probe.title, "allow_free_text": True,
+                    "free_text_label": "不确定，我自己说",
+                    "options": [{"id": o.id, "label": o.label} for o in probe.options],
                 },
-            )
+            )])
 
-        stuck_ids = {
-            "stuck_read_problem",
-            "stuck_concept_formula",
-            "stuck_transform",
-            "stuck_select_method",
-            "stuck_execution",
-            "stuck_repeat_after_answer",
-            "stuck_emotional_avoidance",
-            "stuck_attention_overload",
-            "stuck_confident_wrong_idea",
-        }
-        if not option_ids.intersection(stuck_ids) and "fallback_stuck_step" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
-                session,
-                text="我听下来，孩子确实遇到坎了。你感觉他最容易在哪一步卡住？选最像的一个就行。",
+        # Stage 3: 放大器追问
+        if stage == "amplifier":
+            session.v2_stage = "report"
+            amp_code = self._infer_amplifier_from_options(session)
+            session.identified_amplifier = amp_code
+            amp_map = {"F": Amplifier.F_FIX_LOOP, "G": Amplifier.G_EXAM_PACE, "H": Amplifier.H_AVOIDANCE}
+            amp = amp_map.get(amp_code, Amplifier.F_FIX_LOOP)
+            probe = v2_amplifier_probe(amp)
+            return AgentTurnResult(messages=[AgentMessage(
+                text=self._amplifier_lead_in(amp_code),
                 ui_block={
-                    "type": "single_choice",
-                    "id": "fallback_stuck_step",
-                    "title": "更像卡在哪一步？",
-                    "allow_free_text": True,
-                    "free_text_label": "都不像，我自己说",
-                    "free_text_placeholder": "比如：题目条件太多，他一下就乱了。",
-                    "options": [
-                        {"id": "stuck_read_problem", "label": "题目读完，不确定在问什么"},
-                        {"id": "stuck_concept_formula", "label": "概念或公式知道，但说不清"},
-                        {"id": "stuck_transform", "label": "不知道怎么画图、列式或转化"},
-                        {"id": "stuck_select_method", "label": "不知道选哪个方法或公式"},
-                        {"id": "stuck_execution", "label": "会做但步骤、计算、单位总出错"},
-                        {"id": "stuck_repeat_after_answer", "label": "看答案懂了，下次又不会"},
-                        {"id": "stuck_attention_overload", "label": "条件一多就乱、漏条件"},
-                        {"id": "stuck_confident_wrong_idea", "label": "孩子很笃定，但理解方向错了"},
-                    ],
+                    "type": probe.type.value, "id": "v2_amplifier_probe",
+                    "title": probe.title, "allow_free_text": True,
+                    "free_text_label": "不确定",
+                    "options": [{"id": o.id, "label": o.label} for o in probe.options],
                 },
-            )
+            )])
 
-        subject_probe = self._fallback_subject_probe(session)
-        if subject_probe:
-            return subject_probe
-
-        parent_ids = {
-            "parent_explain_full_solution",
-            "parent_add_more_exercises",
-            "parent_ask_breakpoint",
-            "parent_ai_gives_answer",
-            "parent_review_then_retest",
-        }
-        if not option_ids.intersection(parent_ids) and "fallback_parent_support" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
-                session,
-                text="孩子卡住的时候，你一般会怎么做？可以多选，这个没有对错，我就是想看看你的方式和孩子的卡点是不是一个频道的。",
-                ui_block={
-                    "type": "multi_choice",
-                    "id": "fallback_parent_support",
-                    "title": "你一般会怎么帮？",
-                    "body": "可以多选。选你平时最常做的就行，不用纠结。",
-                    "allow_skip": True,
-                    "allow_free_text": True,
-                    "free_text_label": "我家的情况不太一样",
-                    "free_text_placeholder": "比如：我会先让他讲思路，但讲着讲着就变成我在讲。",
-                    "min_select": 1,
-                    "max_select": 3,
-                    "options": [
-                        {"id": "parent_explain_full_solution", "label": "我会直接讲完整解法"},
-                        {"id": "parent_add_more_exercises", "label": "我会让他多做几道类似题"},
-                        {"id": "parent_ask_breakpoint", "label": "我会先问他从哪一步不会"},
-                        {"id": "parent_ai_gives_answer", "label": "会让 AI 或软件讲答案"},
-                        {"id": "parent_review_then_retest", "label": "会复盘并隔天重做"},
-                    ],
-                },
-            )
-
-        review_ids = {
-            "probe_cannot_name_breakpoint",
-            "probe_only_reads_answer",
-            "probe_ai_answer_first",
-            "probe_parent_takes_over",
-            "probe_many_conditions_overload",
-            "probe_confident_but_wrong_rule",
-            "probe_emotion_blocks_start",
-        }
-        if not option_ids.intersection(review_ids) and "fallback_review_probe" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
-                session,
-                text="最后一个问题～题目做错或者卡住之后，你家通常接下来会发生什么？",
-                ui_block={
-                    "type": "multi_choice",
-                    "id": "fallback_review_probe",
-                    "title": "后面通常会发生什么？",
-                    "allow_skip": True,
-                    "allow_free_text": True,
-                    "free_text_label": "我自己说",
-                    "free_text_placeholder": "比如：他当时说懂了，但第二天不愿意再碰。",
-                    "min_select": 1,
-                    "max_select": 3,
-                    "options": [
-                        {"id": "probe_cannot_name_breakpoint", "label": "孩子说不清第一处断点"},
-                        {"id": "probe_only_reads_answer", "label": "主要看懂答案，很少隔天独立重做"},
-                        {"id": "probe_ai_answer_first", "label": "很快找 AI 或答案"},
-                        {"id": "probe_parent_takes_over", "label": "父母会接管思路，孩子主要听"},
-                        {"id": "probe_many_conditions_overload", "label": "条件一多就乱"},
-                        {"id": "probe_confident_but_wrong_rule", "label": "很有把握，但规则用错"},
-                        {"id": "probe_emotion_blocks_start", "label": "明显烦躁、紧张或逃开"},
-                    ],
-                },
-            )
-
-        result = self._compose_fallback_result(session)
+        # Stage 4: 出初筛报告
+        result = self._compose_v2_report(session)
         session.is_complete = True
+        session.v2_stage = "report"
         session.pending_ui_block_id = None
-        session.pending_ui_block_type = None
         return AgentTurnResult(
-            messages=[AgentMessage(text="好的，我帮你理了一下，下面是我的判断～")],
+            messages=[AgentMessage(text="好的，我帮你理了一下，下面是我的初筛判断～")],
             should_conclude=True,
             result=result,
         )
 
-    # ---- 动态学科探针：根据用户选的 stuck_step 匹配追问 ----
-    _DYNAMIC_PROBES: dict[Subject, dict[str, dict]] = {
-        Subject.MATH: {
-            "stuck_execution": {
-                "text": "数学计算出错，更像是哪一种？我想定位到具体环节。",
-                "options": [
-                    {"id": "math_calc_carry_borrow", "label": "进退位、借位容易错"},
-                    {"id": "math_calc_miscopy", "label": "抄错数字、符号或漏写"},
-                    {"id": "math_calc_decimal_point", "label": "小数点、分数约分常出错"},
-                    {"id": "math_calc_multistep_break", "label": "多步计算中间某步断掉或记错"},
-                ],
-            },
-            "stuck_concept_formula": {
-                "text": "概念理解上，哪种情况更多？",
-                "options": [
-                    {"id": "math_concept_recite_only", "label": "公式定义会背，但不会解释为什么"},
-                    {"id": "math_concept_confuse", "label": "容易混淆相似概念或公式"},
-                    {"id": "math_concept_real_meaning", "label": "说不清算式每一步在算什么"},
-                ],
-            },
-            "stuck_read_problem": {
-                "text": "读题时，更接近哪种情况？",
-                "options": [
-                    {"id": "math_read_miss_condition", "label": "漏看条件、数字或单位"},
-                    {"id": "math_read_unsure_keyword", "label": "不确定关键词（如'至少''不超过'）"},
-                    {"id": "math_read_not_understand_ask", "label": "读完不知道题目到底问什么"},
-                ],
-            },
-            "stuck_transform": {
-                "text": "转化这一步，更卡在哪里？",
-                "options": [
-                    {"id": "math_trans_text_to_expr", "label": "文字描述转不成算式或方程"},
-                    {"id": "math_trans_cant_draw", "label": "不会画线段图、示意图来帮忙"},
-                    {"id": "math_trans_table_relation", "label": "不会列表格或梳理数量关系"},
-                ],
-            },
-            "stuck_select_method": {
-                "text": "选方法时，更像哪种情况？",
-                "options": [
-                    {"id": "math_method_no_idea", "label": "不知道用什么公式或方法"},
-                    {"id": "math_method_unsure", "label": "感觉会用但不确定对不对"},
-                    {"id": "math_method_right_but_why", "label": "经常选对但说不清为什么选它"},
-                ],
-            },
-            "stuck_repeat_after_answer": {
-                "text": "这道题的类型，之前遇到过吗？",
-                "options": [
-                    {"id": "math_repeat_same_ok_variant_fail", "label": "同款题当时能做，换个数就不会"},
-                    {"id": "math_repeat_understand_then_forget", "label": "当时说懂了，过两天完全不记得"},
-                    {"id": "math_repeat_only_cram", "label": "主要靠考前突击，考完就忘"},
-                ],
-            },
-            "stuck_attention_overload": {
-                "text": "什么时候最容易乱？",
-                "options": [
-                    {"id": "math_attn_multi_condition", "label": "题目条件超过3个就开始丢"},
-                    {"id": "math_attn_composite", "label": "单独知识点会，综合题就乱"},
-                    {"id": "math_attn_midway_forget", "label": "做到后面忘了前面算什么"},
-                ],
-            },
-            "stuck_confident_wrong_idea": {
-                "text": "孩子很笃定但错了，更像哪种？",
-                "options": [
-                    {"id": "math_wrong_causal_direction", "label": "因果关系搞反了"},
-                    {"id": "math_wrong_intuitive_rule", "label": "用生活经验代替数学规则"},
-                    {"id": "math_wrong_previous_misunderstand", "label": "之前某个知识点就理解错了"},
-                ],
-            },
-        },
-        Subject.PHYSICS: {
-            "stuck_execution": {
-                "text": "物理计算出错或步骤问题，更像哪种？",
-                "options": [
-                    {"id": "phys_calc_unit_direction", "label": "单位、方向、正负号容易搞混"},
-                    {"id": "phys_calc_formula_sub", "label": "公式会选但代入数字总出错"},
-                    {"id": "phys_calc_multistep_lost", "label": "多步推导中间漏了关键一步"},
-                ],
-            },
-            "stuck_concept_formula": {
-                "text": "物理概念理解，更像哪种？",
-                "options": [
-                    {"id": "phys_concept_formula_no_meaning", "label": "公式会背，但每个量代表什么说不清"},
-                    {"id": "phys_concept_naive_theory", "label": "容易被直觉经验带偏"},
-                    {"id": "phys_concept_cant_explain", "label": "能算对但讲不出为什么"},
-                ],
-            },
-            "stuck_read_problem": {
-                "text": "物理读题，更像哪种？",
-                "options": [
-                    {"id": "phys_read_miss_condition", "label": "漏看条件或物理量"},
-                    {"id": "phys_read_unsure_scene", "label": "不确定题目描述的是什么场景"},
-                ],
-            },
-            "stuck_transform": {
-                "text": "物理建模，卡在哪一步？",
-                "options": [
-                    {"id": "phys_trans_no_diagram", "label": "不画受力图/过程图/电路图就套公式"},
-                    {"id": "phys_trans_scene_to_model", "label": "文字场景转化不成物理模型"},
-                ],
-            },
-            "stuck_select_method": {
-                "text": "选方法时更像哪种？",
-                "options": [
-                    {"id": "phys_method_no_idea", "label": "不知道用哪个公式或定律"},
-                    {"id": "phys_method_confuse_law", "label": "混淆相似定律或公式"},
-                ],
-            },
-            "stuck_repeat_after_answer": {
-                "text": "物理题复测时？",
-                "options": [
-                    {"id": "phys_repeat_template_ok", "label": "同类题能做，换个情景就不会"},
-                    {"id": "phys_repeat_forget_quickly", "label": "看懂后过两天又不会了"},
-                ],
-            },
-            "stuck_attention_overload": {
-                "text": "物理题什么时候最乱？",
-                "options": [
-                    {"id": "phys_attn_multi_object", "label": "题目涉及多物体/多过程就乱"},
-                    {"id": "phys_attn_composite", "label": "力学电学混合题完全理不清"},
-                ],
-            },
-            "stuck_confident_wrong_idea": {
-                "text": "物理直觉出错，更像哪种？",
-                "options": [
-                    {"id": "phys_wrong_force_motion", "label": "力与运动关系直觉错误"},
-                    {"id": "phys_wrong_current_consumed", "label": "认为电流会被用电器消耗"},
-                ],
-            },
-        },
-        Subject.CHEMISTRY: {
-            "stuck_execution": {
-                "text": "化学计算或书写，更像哪种错？",
-                "options": [
-                    {"id": "chem_calc_balance", "label": "方程式配平容易出错"},
-                    {"id": "chem_calc_valence", "label": "化合价或化学式写错"},
-                    {"id": "chem_calc_mole_mass", "label": "物质的量或质量计算混乱"},
-                ],
-            },
-            "stuck_concept_formula": {
-                "text": "化学概念理解，更像哪种？",
-                "options": [
-                    {"id": "chem_concept_particle_confuse", "label": "分不清原子、分子、离子"},
-                    {"id": "chem_concept_conservation", "label": "守恒观念没有真正建立"},
-                ],
-            },
-            "stuck_read_problem": {
-                "text": "化学读题，更像哪种？",
-                "options": [
-                    {"id": "chem_read_miss_condition", "label": "漏看物质状态或反应条件"},
-                    {"id": "chem_read_unsure_symbol", "label": "化学式或符号不认识"},
-                ],
-            },
-            "stuck_transform": {
-                "text": "化学表征，卡在哪？",
-                "options": [
-                    {"id": "chem_trans_macro_micro", "label": "宏观现象和微观粒子对不上"},
-                    {"id": "chem_trans_equation_to_scene", "label": "方程式和实验场景联系不起来"},
-                ],
-            },
-            "stuck_select_method": {
-                "text": "化学推断，更像哪种？",
-                "options": [
-                    {"id": "chem_method_no_idea", "label": "不知道从哪个物质或反应入手"},
-                    {"id": "chem_method_cant_transfer", "label": "反应规律换到新物质就不会用"},
-                ],
-            },
-            "stuck_repeat_after_answer": {
-                "text": "化学复测时？",
-                "options": [
-                    {"id": "chem_repeat_template_ok", "label": "同类题换物质就不会"},
-                    {"id": "chem_repeat_forget_quickly", "label": "看完答案过两天忘"},
-                ],
-            },
-            "stuck_attention_overload": {
-                "text": "化学题什么时候最乱？",
-                "options": [
-                    {"id": "chem_attn_multi_step", "label": "推断流程一多就乱"},
-                    {"id": "chem_attn_mix_calc", "label": "实验+计算混合题理不清"},
-                ],
-            },
-            "stuck_confident_wrong_idea": {
-                "text": "化学直觉出错，更像哪种？",
-                "options": [
-                    {"id": "chem_wrong_valence_misconception", "label": "化合价或电子观念理解偏差"},
-                    {"id": "chem_wrong_reaction_rule", "label": "反应规律用反或套错"},
-                ],
-            },
-        },
-    }
+    # ---- V2 辅助方法 ----
 
-    def _fallback_subject_probe(self, session: ConversationSession) -> AgentTurnResult | None:
-        subject = session.fallback_subject
-        option_ids = set(session.fallback_option_ids)
-        block_id_map = {
-            Subject.MATH: "fallback_math_probe",
-            Subject.PHYSICS: "fallback_physics_probe",
-            Subject.CHEMISTRY: "fallback_chemistry_probe",
-        }
-        block_id = block_id_map.get(subject)
-        if not block_id:
-            return None
-        if block_id in session.fallback_asked_block_ids:
-            return None
+    def _paraphrase_parent(self, session: ConversationSession) -> str:
+        evidence = session.free_text_evidence
+        if evidence:
+            core = evidence[0][:80]
+            return (
+                "我先把你说的情况捋一下：你担心的不是单纯'不会做'，而是「" + core + "…」。"
+                "这类情况表面上都像'粗心'或'没认真'，但后面可能是几种不同问题。我们先把它缩小一点。"
+            )
+        return "我先把你说的情况捋一下。这类情况表面上像粗心，但后面可能是几种不同问题。我们先把它缩小一点。"
 
-        # 找出用户选的 stuck_step
-        stuck_step_ids = {
-            "stuck_execution", "stuck_concept_formula", "stuck_read_problem",
-            "stuck_transform", "stuck_select_method", "stuck_repeat_after_answer",
-            "stuck_attention_overload", "stuck_confident_wrong_idea",
-            "stuck_emotional_avoidance",
-        }
-        matched_stuck = option_ids.intersection(stuck_step_ids)
-        stuck_step = next(iter(matched_stuck), None)
-
-        # 根据 stuck_step 选择动态探针，无匹配时用通用探针
-        subject_probes = self._DYNAMIC_PROBES.get(subject, {})
-        probe = subject_probes.get(stuck_step or "") if stuck_step else None
-
-        if probe:
-            config = {
-                "block_id": block_id,
-                "text": probe["text"],
-                "options": probe["options"],
-                "ids": {opt["id"] for opt in probe["options"]},
-            }
-        else:
-            # 通用兜底：保留原逻辑，问学科经典问题
-            fallback_probes = {
-                Subject.MATH: {
-                    "text": "数学里我再收窄一点，哪种更像？",
-                    "options": [
-                        {"id": "math_same_template_ok_variant_fail", "label": "例题同款能做，变式不会"},
-                        {"id": "math_symbol_condition_missed", "label": "题干条件、符号或图形关系常漏掉"},
-                        {"id": "math_multi_condition_overload", "label": "条件一多就乱、漏条件"},
-                    ],
-                },
-                Subject.PHYSICS: {
-                    "text": "物理里我再收窄一点，哪种更像？",
-                    "options": [
-                        {"id": "physics_no_diagram", "label": "不画过程图、受力图或电路图就套公式"},
-                        {"id": "physics_formula_without_quantity_meaning", "label": "公式会背，但每个量代表什么说不清"},
-                        {"id": "physics_naive_force_motion", "label": "容易被直觉经验带偏"},
-                        {"id": "physics_direction_sign_confusion", "label": "方向、正负号或单位容易混乱"},
-                    ],
-                },
-                Subject.CHEMISTRY: {
-                    "text": "化学里我再收窄一点，哪种更像？",
-                    "options": [
-                        {"id": "chem_symbol_equation_mismatch", "label": "现象、粒子变化和方程式对不上"},
-                        {"id": "chem_rule_cannot_transfer", "label": "反应规律换到新物质就不会用"},
-                        {"id": "chem_conservation_or_valence_misconception", "label": "守恒、化合价或微粒观念理解偏了"},
-                    ],
-                },
-            }
-            fb = fallback_probes.get(subject)
-            if not fb:
-                return None
-            config = {
-                "block_id": block_id,
-                "text": fb["text"],
-                "options": fb["options"],
-                "ids": {opt["id"] for opt in fb["options"]},
-            }
-
-        # 已经问过或已经覆盖了这些选项 → 跳过
-        if option_ids.intersection(config["ids"]):
-            return None
-
-        # 按年级过滤不合适的选项
-        options = config["options"]
-        grade = session.fallback_grade
-        if grade > 0:
-            bucket = self._grade_bucket(grade)
-            filter_set = self._GRADE_FILTER_OPTIONS.get(bucket, set())
-            options = [opt for opt in options if opt["id"] not in filter_set]
-
-        return self._fallback_question(
-            session,
-            text=config["text"],
-            ui_block={
-                "type": "single_choice",
-                "id": block_id,
-                "title": config["text"],
-                "allow_free_text": True,
-                "free_text_label": "都不像，我自己说",
-                "free_text_placeholder": "用你自己的话补一句具体表现。",
-                "options": options,
-            },
+    def _narrow_candidates(self, session: ConversationSession) -> dict:
+        cat_scores, _ = accumulate_category_scores(
+            session.fallback_subject, session.fallback_option_ids, decay_prior=True
         )
+        sorted_cats = sorted(cat_scores.items(), key=lambda x: x[1], reverse=True)
+        top2 = sorted_cats[:2] if len(sorted_cats) >= 2 else sorted_cats
+
+        labels = {
+            StuckCategory.A_CONCEPT: "基础概念不太稳",
+            StuckCategory.B_RULE_BOUNDARY: "规则会背但用不对地方",
+            StuckCategory.C_INFO_SYMBOL: "读题信息没进到解题里",
+            StuckCategory.D_EXECUTION: "思路对但中间步骤总出错",
+            StuckCategory.E_MODELING: "应用题或综合题不会建关系",
+        }
+        candidates = [labels.get(c[0], "其他") for c in top2]
+        return {
+            "text": (
+                "目前我更想优先看两个方向：一个是「" + candidates[0] + "」，"
+                "另一个是「" + candidates[1] + "」。"
+                "先帮我分一下：这种错最常发生在哪一刻？"
+            ),
+            "ui_block": {
+                "type": "single_choice", "id": "v2_narrow",
+                "title": "最常发生在哪一刻？",
+                "allow_free_text": True,
+                "free_text_label": "不确定，我自己说",
+                "options": [
+                    {"id": "narrow_primary", "label": "更像「" + candidates[0] + "」"},
+                    {"id": "narrow_secondary", "label": "更像「" + candidates[1] + "」"},
+                    {"id": "narrow_unsure", "label": "不确定"},
+                ],
+            },
+        }
+
+    def _category_lead_in(self, cat_code: str) -> str:
+        leads = {
+            "A": "我想再确认一下：孩子遇到这类题的时候，是概念本身没搞懂，还是知道概念但不会用？",
+            "B": "我想再确认一下：是规则本身记错了，还是不知道什么时候该用哪条规则？",
+            "C": "这种错最常发生在读题那一刻，还是列式画图的时候？",
+            "D": "这种计算错误是偶尔一次，还是同一种错在不同题里反复出现？",
+            "E": "孩子是题目读不懂，还是读懂了但不会转化成数学式子？",
+        }
+        return leads.get(cat_code, "我先确认一下具体情况。")
+
+    def _amplifier_lead_in(self, amp_code: str) -> str:
+        leads = {
+            "F": "最后一个问题：孩子做错以后，通常接下来会发生什么？",
+            "G": "再确认一个点：平时作业和考试差别大吗？",
+            "H": "孩子遇到难题时，第一反应通常是什么？",
+        }
+        return leads.get(amp_code, "最后一个问题。")
+
+    def _infer_category_from_options(self, session: ConversationSession) -> str:
+        """从选项推断最可能的主卡点类别"""
+        cat_scores, _ = accumulate_category_scores(
+            session.fallback_subject, session.fallback_option_ids
+        )
+        if cat_scores:
+            top = max(cat_scores, key=lambda k: cat_scores[k])
+            return top.value[0]  # A/B/C/D/E
+        return "D"
+
+    def _infer_amplifier_from_options(self, session: ConversationSession) -> str:
+        """从选项推断最可能的放大器"""
+        _, amp_scores = accumulate_category_scores(
+            session.fallback_subject, session.fallback_option_ids
+        )
+        if amp_scores:
+            top = max(amp_scores, key=lambda k: amp_scores[k])
+            return top.value[0]  # F/G/H
+        return "F"
+
+    def _compose_v2_report(self, session: ConversationSession) -> dict[str, Any]:
+        """V2 初筛报告：5 段固定结构"""
+        cat_code = session.identified_category or "D"
+        amp_code = session.identified_amplifier or ""
+        subject = session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else "math"
+
+        cat_map = {"A": StuckCategory.A_CONCEPT, "B": StuckCategory.B_RULE_BOUNDARY,
+                    "C": StuckCategory.C_INFO_SYMBOL, "D": StuckCategory.D_EXECUTION,
+                    "E": StuckCategory.E_MODELING}
+        amp_map = {"F": Amplifier.F_FIX_LOOP, "G": Amplifier.G_EXAM_PACE, "H": Amplifier.H_AVOIDANCE}
+        category = cat_map.get(cat_code, StuckCategory.D_EXECUTION)
+        amplifier = amp_map.get(amp_code)
+        cat_label = CATEGORY_LABELS.get(category, "某个环节需要加强")
+        amp_label = AMPLIFIER_LABELS.get(amplifier, "") if amplifier else ""
+
+        # 证据：引用家长原话
+        evidence = session.free_text_evidence[:3] if session.free_text_evidence else []
+        opt_evidence = [
+            OPTION_PUBLIC_LABELS.get(oid, oid)
+            for oid in session.fallback_option_ids if oid in OPTION_PUBLIC_LABELS
+        ]
+        evidence = list(dict.fromkeys(evidence + opt_evidence))
+        if not evidence:
+            evidence = ["根据你描述的情况"]
+
+        # 验证动作 + 不确定性
+        vaction = get_verification_action(category, subject)
+        uncertainties = get_uncertainties(category)
+
+        # 报告
+        amp_line = "，同时" + amp_label + "可能让它反复出现" if amp_label else ""
+        public_summary = (
+            "这次更像是「" + cat_label + "」" + amp_line + "。"
+            "这不等于孩子不努力，也暂时不能简单叫\"粗心\"。\n\n"
+            "我这样判断，是因为你刚才提到：\n"
+            + "\n".join("· " + e for e in evidence[:3]) +
+            "\n\n现在还不能确定的是：\n"
+            + "\n".join("· " + u for u in uncertainties[:3]) +
+            "\n\n今晚可以试一个小动作——" + vaction["title"] + "：\n" + vaction["steps"] + "\n\n"
+            "这次初筛已经帮你缩小了方向。但要知道孩子到底是哪一种错误、在哪些题型里反复发生、"
+            "先修哪一个，仍需要看真实卷面。上传最近1-2张大考卷后，可以进一步帮你整理："
+            "重复出现的失分类型、最该先修的2-3个卡点、每个卡点的代表错题、7天内每天只练什么。"
+        )
+
+        return {
+            "subject": subject,
+            "primary_factor": cat_label,
+            "primary_category": cat_label,
+            "primary_desc": "这次更像是「" + cat_label + "」" + amp_line,
+            "secondary_factors": [amp_label] if amp_label else [],
+            "amplifier": amp_label,
+            "evidence": evidence[:6],
+            "uncertainties": uncertainties,
+            "verification_action": vaction,
+            "missing_information": uncertainties[:2],
+            "next_7_days_start": vaction.get("title", ""),
+            "parent_common_mistake": "把表面现象简单归为粗心或态度问题。",
+            "next_7_days_stop": "先不要急着加题量或反复讲答案。",
+            "public_summary": public_summary,
+        }
+
 
     def _fallback_question(
         self,
@@ -1070,128 +821,3 @@ class ConversationAgent:
             "我可以帮你定位得更准，告诉你接下来具体怎么做。"
         ),
     }
-
-    def _compose_fallback_result(self, session: ConversationSession) -> dict[str, Any]:
-        scores = accumulate_scores(session.fallback_subject, session.fallback_option_ids)
-        if not scores:
-            scores = {FactorCode.F07_METACOGNITION: 1.0}
-
-        sorted_scores = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        primary = sorted_scores[0][0]
-        secondary = [factor for factor, _ in sorted_scores[1:3]]
-        option_ids = session.fallback_option_ids
-        option_set = set(option_ids)
-
-        # ---- 个性化建议 ----
-        primary_label = FACTOR_PUBLIC_LABELS[primary]
-        primary_action = FACTOR_ACTIONS[primary]
-
-        personal = self._PERSONALIZED_ADVICE.get("_default")
-        for oid in option_ids:
-            if oid in self._PERSONALIZED_ADVICE:
-                personal = self._PERSONALIZED_ADVICE[oid]
-                break
-
-        problem_name = personal.get("problem_name", "某个环节需要加强")
-        why_happens = personal.get("why_happens", "")
-        try_this = personal.get("try_this", primary_action["start"])
-
-        # ---- 年级占位符替换 ----
-        grade = session.fallback_grade
-        grade_label = self._grade_label(grade)
-        if grade_label:
-            grade_opener = f"{grade_label}的孩子" if grade <= 6 else f"{grade_label}阶段"
-        else:
-            grade_opener = "很多孩子"
-
-        # 年级钩子文案
-        grade_hook_texts = {
-            "lower": "比如20以内的进退位是不是真的过关了？数数和比大小的基础稳不稳？",
-            "middle": "比如乘法口诀是不是到多位数就慢了？分数概念是不是只停留在背定义？",
-            "upper": "比如小数和分数的转换是不是还有坑？应用题里的数量关系是不是靠猜？",
-            "junior": "比如小学的分数运算是不是真扎实？方程和函数的概念建立起来了吗？",
-            "senior": "比如函数思想是不是还停留在套公式？抽象符号和逻辑推理跟得上吗？",
-        }
-        bucket = self._grade_bucket(grade) if grade > 0 else "upper"
-        grade_hook = grade_hook_texts.get(bucket, grade_hook_texts["upper"])
-
-        why_happens = why_happens.replace("{grade_opener}", grade_opener)
-
-        # ---- 因果链 ----
-        causal = self._build_causal_chain(option_set)
-
-        # ---- 证据 ----
-        evidence = [
-            OPTION_PUBLIC_LABELS.get(oid, oid)
-            for oid in option_ids
-            if oid in OPTION_PUBLIC_LABELS
-        ]
-        if not evidence:
-            evidence = ["根据你描述的情况"]
-
-        # ---- 钩子 ----
-        subject_key = session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else "_default"
-        hook = self._HOOKS.get(subject_key, self._HOOKS["_default"])
-        hook = hook.replace("{grade_hook}", grade_hook)
-
-        # ---- 构建 public_summary（口语版） ----
-        evidence_line = "从你刚才说的情况来看"
-        secondary_labels = [FACTOR_PUBLIC_LABELS[f] for f in secondary if f in FACTOR_PUBLIC_LABELS]
-
-        parts = [
-            f"{evidence_line}，孩子现在最突出的问题是「{problem_name}」。",
-        ]
-        if why_happens:
-            parts.append(why_happens)
-        parts.append(causal)
-        parts.append(f"你可以先试一个小动作：{try_this}")
-        parts.append("")
-        parts.append(hook)
-        parts.append("")
-        parts.append("诊断进阶：如果想要更准确的判断，请准备两张孩子最近考完的大考试卷，拍照发给我，我可以定位到具体哪类题型、哪个知识点的哪个环节出了错。")
-
-        public_summary = "\n\n".join(parts)
-
-        return {
-            "subject": session.fallback_subject.value,
-            "primary_factor": primary_label,
-            "primary_desc": f"主要是「{problem_name}」——{why_happens}" if why_happens else f"主要是「{problem_name}」。",
-            "secondary_factors": secondary_labels,
-            "evidence": evidence[:6],
-            "missing_information": [] if len(evidence) >= 3 else ["如果能再具体说说孩子最近一次考试的情况，我可以判断得更准。"],
-            "parent_common_mistake": primary_action["mistake"],
-            "next_7_days_stop": primary_action["stop"],
-            "next_7_days_start": try_this,
-            "public_summary": public_summary,
-            "hook": hook,
-        }
-
-    def _build_causal_chain(self, option_set: set[str]) -> str:
-        """根据用户选项组合，生成因果推理链（口语版）。"""
-        parent_ids = {
-            "parent_add_more_exercises", "parent_explain_full_solution",
-            "parent_ai_gives_answer", "parent_review_then_retest",
-        }
-        review_ids = {
-            "probe_only_reads_answer", "probe_cannot_name_breakpoint",
-            "probe_ai_answer_first", "probe_template_ok_variant_fail",
-            "probe_emotion_blocks_start",
-        }
-        selected_parent = option_set.intersection(parent_ids)
-        selected_review = option_set.intersection(review_ids)
-
-        if selected_parent and selected_review:
-            for pid in selected_parent:
-                for rid in selected_review:
-                    key = (pid, rid)
-                    if key in self._CAUSAL_LINKS:
-                        return self._CAUSAL_LINKS[key]
-            return self._CAUSAL_LINKS.get(
-                "_default_parent_strategy",
-                "你现在帮孩子的方式，和孩子真正卡住的那个点，可能有一点错位。"
-            )
-
-        if selected_parent:
-            return "你帮孩子的心意肯定没问题，但也许可以换一种帮法，效果会更好。"
-
-        return "孩子在这个环节卡住其实挺常见的，关键是用对方法去练，而不是练更多。"

@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections import defaultdict
 import re
 
-from .models import FactorCode, Subject
+from .models import (
+    FactorCode, Subject,
+    StuckCategory, Amplifier,
+    CATEGORY_LABELS, AMPLIFIER_LABELS,
+    FACTOR_TO_CATEGORY, FACTOR_TO_AMPLIFIER,
+)
 
 
 OPTION_WEIGHTS: dict[str, dict[FactorCode, float]] = {
@@ -446,3 +451,46 @@ def infer_option_ids_from_text(text: str) -> list[str]:
         if pattern.search(text):
             option_ids.extend(ids)
     return list(dict.fromkeys(option_ids))
+
+
+# ---- V2 类别评分 ----
+
+def accumulate_category_scores(
+    subject: Subject,
+    option_ids: list[str],
+    decay_prior: bool = True,
+) -> tuple[dict[StuckCategory, float], dict[Amplifier, float]]:
+    """V2 类别评分：从旧因子权重聚合为主卡点 + 放大器得分。
+
+    放大器权重系数 0.5，确保不抢主卡点位置。
+    返回 (category_scores, amplifier_scores)。
+    """
+    factor_scores = accumulate_scores(subject, option_ids, decay_prior=decay_prior)
+    if not factor_scores:
+        factor_scores = {FactorCode.F07_METACOGNITION: 1.0}
+
+    category_scores: dict[StuckCategory, float] = defaultdict(float)
+    amplifier_scores: dict[Amplifier, float] = defaultdict(float)
+
+    for factor, score in factor_scores.items():
+        cat = FACTOR_TO_CATEGORY.get(factor)
+        if cat:
+            category_scores[cat] += score
+        amp = FACTOR_TO_AMPLIFIER.get(factor)
+        if amp:
+            amplifier_scores[amp] += score * 0.5
+
+    return dict(category_scores), dict(amplifier_scores)
+
+
+def top_category(
+    subject: Subject,
+    option_ids: list[str],
+) -> tuple[StuckCategory | None, Amplifier | None]:
+    """返回最高分的 (主卡点, 放大器)。"""
+    cat_scores, amp_scores = accumulate_category_scores(subject, option_ids)
+    if not cat_scores:
+        return None, None
+    top_cat = max(cat_scores, key=lambda k: cat_scores[k])
+    top_amp = max(amp_scores, key=lambda k: amp_scores[k]) if amp_scores else None
+    return top_cat, top_amp
