@@ -57,6 +57,7 @@ class ConversationSession:
     fallback_subject: Subject = Subject.UNKNOWN
     fallback_option_ids: list[str] = field(default_factory=list)
     fallback_asked_block_ids: set[str] = field(default_factory=set)
+    fallback_grade: int = 0  # 0=未识别, 1-12=年级
 
 
 class ConversationAgent:
@@ -66,6 +67,47 @@ class ConversationAgent:
 
     def __init__(self, adapter: LLMAdapter):
         self.adapter = adapter
+
+    # ---- 年级工具 ----
+    @staticmethod
+    def _grade_bucket(grade: int) -> str:
+        """年级分桶"""
+        if grade <= 2:
+            return "lower"       # 低年级 1-2
+        if grade <= 4:
+            return "middle"      # 中年级 3-4
+        if grade <= 6:
+            return "upper"       # 高年级 5-6
+        if grade <= 9:
+            return "junior"      # 初中 7-9
+        return "senior"          # 高中 10-12
+
+    @staticmethod
+    def _grade_label(grade: int) -> str:
+        """年级中文描述"""
+        if grade == 0:
+            return ""
+        if grade <= 6:
+            return f"{'一二三四五六'[grade - 1]}年级"
+        if grade <= 9:
+            return f"初{'一二三'[grade - 7]}"
+        return f"高{'一二三'[grade - 10]}"
+
+    # 年级不适用的选项 ID（低年级应过滤掉）
+    _GRADE_FILTER_OPTIONS: dict[str, set[str]] = {
+        "lower": {
+            "math_calc_decimal_point",   # 低年级没学小数
+            "math_calc_multistep_break", # 低年级没有多步复杂计算
+            "math_method_no_idea", "math_method_unsure", "math_method_right_but_why",
+            "phys_calc_multistep_lost", "phys_method_no_idea", "phys_method_confuse_law",
+            "chem_calc_balance", "chem_calc_valence", "chem_calc_mole_mass",
+            "chem_method_no_idea", "chem_method_cant_transfer",
+        },
+        "middle": {
+            "math_calc_decimal_point",   # 3-4年级小数刚学，可作为选项但不过滤
+            "chem_calc_balance", "chem_calc_mole_mass",  # 化学未开始
+        },
+    }
 
     def start_session(self) -> tuple[ConversationSession, AgentTurnResult]:
         """开始一个新的对话会话"""
@@ -419,11 +461,36 @@ class ConversationAgent:
             if session.fallback_subject == Subject.UNKNOWN and inferred_subject != Subject.UNKNOWN:
                 session.fallback_subject = inferred_subject
             # P0 修复：只对用户自由文本做 option_id 推断，不对 UI 标签文本推断
-            # 避免标签中文文本（如"看懂答案"）被正则误匹配注入假 option_id
             if text and text.strip():
                 session.fallback_option_ids.extend(infer_option_ids_from_text(text.strip()))
+            # 提取年级
+            if session.fallback_grade == 0:
+                session.fallback_grade = self._extract_grade(combined_text)
 
         session.fallback_option_ids = list(dict.fromkeys(session.fallback_option_ids))
+
+    @staticmethod
+    def _extract_grade(text: str) -> int:
+        """从文本中提取年级数字。0 表示未识别。"""
+        import re as _re
+        # 小学：一年级～六年级 → 1-6
+        m = _re.search(r"([一二三四五六])(?:年|年级)", text)
+        if m:
+            return {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6}.get(m.group(1), 0)
+        # 初一/初二/初三 → 7-9
+        m = _re.search(r"初([一二三])", text)
+        if m:
+            return {"一": 7, "二": 8, "三": 9}.get(m.group(1), 0)
+        # 高一/高二/高三 → 10-12
+        m = _re.search(r"高([一二三])", text)
+        if m:
+            return {"一": 10, "二": 11, "三": 12}.get(m.group(1), 0)
+        # 纯数字: 1年级, 2年级
+        m = _re.search(r"(\d+)\s*(?:年|年级)", text)
+        if m:
+            g = int(m.group(1))
+            return g if 1 <= g <= 12 else 0
+        return 0
 
     def _fallback_response(self, session: ConversationSession) -> AgentTurnResult:
         """LLM 不可用时的降级回复"""
@@ -832,6 +899,14 @@ class ConversationAgent:
         if option_ids.intersection(config["ids"]):
             return None
 
+        # 按年级过滤不合适的选项
+        options = config["options"]
+        grade = session.fallback_grade
+        if grade > 0:
+            bucket = self._grade_bucket(grade)
+            filter_set = self._GRADE_FILTER_OPTIONS.get(bucket, set())
+            options = [opt for opt in options if opt["id"] not in filter_set]
+
         return self._fallback_question(
             session,
             text=config["text"],
@@ -842,7 +917,7 @@ class ConversationAgent:
                 "allow_free_text": True,
                 "free_text_label": "都不像，我自己说",
                 "free_text_placeholder": "用你自己的话补一句具体表现。",
-                "options": config["options"],
+                "options": options,
             },
         )
 
@@ -861,12 +936,12 @@ class ConversationAgent:
         "math_calc_carry_borrow": {
             "problem_name": "进退位容易出错",
             "why_happens": (
-                "很多孩子到五年级了进退位还会出错，不是粗心，是当初学的时候这个动作没有练到'不过脑子就能做对'的程度。"
-                "后面题目一复杂，脑子要同时处理好几件事，进退位这个基本功就自动掉链子了。"
+                "{grade_opener}进退位容易出错，通常不是粗心——是当初学进退位的时候没有练到'不过脑子就能做对'的程度。"
+                "后面题目一多，脑子要同时处理好几件事，进退位这个基本功就容易掉链子。"
             ),
             "try_this": (
-                "每天就做5道进退位专项题，不贪多。从两位数进退位开始，每做一步嘴里念出来："
-                "'个位8加7等于15，写5进1，十位变成...'——念出声是帮孩子把动作变成本能。"
+                "每天就做5道进退位专项题，不贪多。每做一步让孩子念出来："
+                "'个位8加7等于15，写5进1，十位变成...'——念出声是帮动作变成本能。"
             ),
         },
         "math_calc_miscopy": {
@@ -960,9 +1035,9 @@ class ConversationAgent:
     # ---- 引流钩子库 ----
     _HOOKS: dict[str, str] = {
         "math": (
-            "对了，刚才我们聊的主要是数学计算这一块。但其实计算背后有时候还藏着更早的问题——"
-            "比如三年级的分数学扎实了吗？乘法口诀是不是到多位数就慢了？"
-            "如果想，你可以跟我说说孩子其他科或更早的情况，我帮你看看还有没有别的隐患。"
+            "对了，刚才聊的主要是计算这一块。但计算出错有时候不只是计算本身的问题——"
+            "往前倒一步，可能是更早的知识点没扎稳。{grade_hook}"
+            "如果你想，可以跟我说说孩子这门课之前的考试情况，我帮你看看是不是前面有窟窿。"
         ),
         "physics": (
             "物理这一科比较特殊，很多孩子的卡点其实不在物理本身，而在数学工具没跟上。"
@@ -1004,6 +1079,27 @@ class ConversationAgent:
         why_happens = personal.get("why_happens", "")
         try_this = personal.get("try_this", primary_action["start"])
 
+        # ---- 年级占位符替换 ----
+        grade = session.fallback_grade
+        grade_label = self._grade_label(grade)
+        if grade_label:
+            grade_opener = f"{grade_label}的孩子" if grade <= 6 else f"{grade_label}阶段"
+        else:
+            grade_opener = "很多孩子"
+
+        # 年级钩子文案
+        grade_hook_texts = {
+            "lower": "比如20以内的进退位是不是真的过关了？数数和比大小的基础稳不稳？",
+            "middle": "比如乘法口诀是不是到多位数就慢了？分数概念是不是只停留在背定义？",
+            "upper": "比如小数和分数的转换是不是还有坑？应用题里的数量关系是不是靠猜？",
+            "junior": "比如方程思想是不是还没建立？函数图像看得懂吗？",
+            "senior": "比如函数和导数的关系是不是只是背公式？概率统计的直觉对不对？",
+        }
+        bucket = self._grade_bucket(grade) if grade > 0 else "upper"
+        grade_hook = grade_hook_texts.get(bucket, grade_hook_texts["upper"])
+
+        why_happens = why_happens.replace("{grade_opener}", grade_opener)
+
         # ---- 因果链 ----
         causal = self._build_causal_chain(option_set)
 
@@ -1019,6 +1115,7 @@ class ConversationAgent:
         # ---- 钩子 ----
         subject_key = session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else "_default"
         hook = self._HOOKS.get(subject_key, self._HOOKS["_default"])
+        hook = hook.replace("{grade_hook}", grade_hook)
 
         # ---- 构建 public_summary（口语版） ----
         evidence_line = "从你刚才说的情况来看"
@@ -1033,6 +1130,8 @@ class ConversationAgent:
         parts.append(f"你可以先试一个小动作：{try_this}")
         parts.append("")
         parts.append(hook)
+        parts.append("")
+        parts.append("诊断进阶：如果想要更准确的判断，请准备两张孩子最近考完的大考试卷，拍照发给我，我可以定位到具体哪类题型、哪个知识点的哪个环节出了错。")
 
         public_summary = "\n\n".join(parts)
 
