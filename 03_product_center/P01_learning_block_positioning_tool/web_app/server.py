@@ -161,7 +161,7 @@ def reconstruct_session_messages(events: list[dict]) -> tuple[list[dict], bool]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "P01DiagnosticAgent/2.0"
+    server_version = "MathScreeningAgent/2.0"
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -334,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
-    print(f"P01 Conversational Agent running at http://127.0.0.1:8765")
+    print(f"Math Screening Agent V2 running at http://127.0.0.1:8765")
     print(f"  LLM mode: {llm_adapter.status().mode}")
     print(f"  DeepSeek ready: {llm_adapter.status().deepseek_ready}")
     server.serve_forever()

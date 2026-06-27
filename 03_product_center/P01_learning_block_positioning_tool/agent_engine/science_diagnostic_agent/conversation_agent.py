@@ -486,6 +486,21 @@ class ConversationAgent:
 
         # Stage 1: 复述家长的话 + 给出 2 个候选方向
         if stage in ("opening", "paraphrase"):
+            # 如果家长只说"数学不好""总粗心"，先追问具体事件
+            evidence_text = " ".join(session.free_text_evidence) if session.free_text_evidence else ""
+            if len(evidence_text) < 10:
+                return self._fallback_question(
+                    session,
+                    text="你印象最深的一次是什么？是哪一类题、哪一次考试，还是哪一种经常重复的错误？多说一点细节，我才能帮你缩小范围。",
+                    ui_block={
+                        "type": "short_text", "id": "v2_more_detail",
+                        "title": "多说一点细节",
+                        "allow_free_text": True,
+                        "free_text_label": "我自己说",
+                        "free_text_placeholder": "比如：最近一次单元测验，计算题总是进退位搞反，平时作业还好，一到考试就错。",
+                        "options": [],
+                    },
+                )
             session.v2_stage = "narrow"
             paraphrase = self._paraphrase_parent(session)
             candidates = self._narrow_candidates(session)
@@ -658,17 +673,22 @@ class ConversationAgent:
 
         # 报告
         amp_line = "，同时" + amp_label + "可能让它反复出现" if amp_label else ""
+        subject_name = "数学" if subject == "math" else "物理"
         public_summary = (
-            "这次更像是「" + cat_label + "」" + amp_line + "。"
-            "这不等于孩子不努力，也暂时不能简单叫\"粗心\"。\n\n"
+            "这次的问题核心更像是「" + cat_label + "」" + amp_line + "。\n"
+            "别再让孩子无效刷题或者罚抄错题了！这根本不是粗心，而是底层的" + subject_name + "逻辑架构没搭稳。"
+            "就像盖楼一样，地基歪了，你在上面怎么修补墙皮都没用。\n\n"
             "我这样判断，是因为你刚才提到：\n"
             + "\n".join("· " + e for e in evidence[:3]) +
-            "\n\n现在还不能确定的是：\n"
+            "\n\n现在单靠描述还不能确定的是：\n"
             + "\n".join("· " + u for u in uncertainties[:3]) +
             "\n\n今晚可以试一个小动作——" + vaction["title"] + "：\n" + vaction["steps"] + "\n\n"
-            "这次初筛已经帮你缩小了方向。但要知道孩子到底是哪一种错误、在哪些题型里反复发生、"
-            "先修哪一个，仍需要看真实卷面。上传最近1-2张大考卷后，可以进一步帮你整理："
-            "重复出现的失分类型、最该先修的2-3个卡点、每个卡点的代表错题、7天内每天只练什么。"
+            "注意：在做这个验证时，你大概率会发现孩子根本说不出第一处跑偏在哪里，或者解释不清最基础的那个概念。"
+            "不要生气，这非常正常。这说明他的" + subject_name + "基础架构已经有了断层，单靠盯着一道错题是找不到真正断点的。\n\n"
+            "刚才的对话，我们只是通过描述看到了水面上的冰山一角。但孩子大脑里到底哪一段逻辑链路跑错了？"
+            "看病不能光听家属描述，必须看最终的'化验单'——也就是孩子的真实演算卷面。"
+            "把孩子最近的1-2张" + subject_name + "大考卷发过来，我会像做X光扫描一样，逐行拆解他的解题步骤，"
+            "帮你出一份精准的漏洞定位与修复方案。找准了底层的那个漏洞，把逻辑重新顺一遍，比瞎做100道题都管用。"
         )
 
         return {
