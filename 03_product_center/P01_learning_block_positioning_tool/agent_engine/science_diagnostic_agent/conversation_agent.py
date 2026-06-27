@@ -93,19 +93,25 @@ class ConversationAgent:
             return f"初{'一二三'[grade - 7]}"
         return f"高{'一二三'[grade - 10]}"
 
-    # 年级不适用的选项 ID（低年级应过滤掉）
+    # 年级不适用的选项 ID
     _GRADE_FILTER_OPTIONS: dict[str, set[str]] = {
-        "lower": {
-            "math_calc_decimal_point",   # 低年级没学小数
-            "math_calc_multistep_break", # 低年级没有多步复杂计算
+        "lower": {  # 1-2年级
+            "math_calc_decimal_point", "math_calc_multistep_break",
             "math_method_no_idea", "math_method_unsure", "math_method_right_but_why",
+            "math_attn_multi_condition", "math_attn_composite",
             "phys_calc_multistep_lost", "phys_method_no_idea", "phys_method_confuse_law",
             "chem_calc_balance", "chem_calc_valence", "chem_calc_mole_mass",
             "chem_method_no_idea", "chem_method_cant_transfer",
         },
-        "middle": {
-            "math_calc_decimal_point",   # 3-4年级小数刚学，可作为选项但不过滤
-            "chem_calc_balance", "chem_calc_mole_mass",  # 化学未开始
+        "middle": {  # 3-4年级
+            "chem_calc_balance", "chem_calc_mole_mass",
+        },
+        "junior": {  # 初中：过滤小学特征选项
+            "math_calc_carry_borrow", "math_calc_miscopy",
+        },
+        "senior": {  # 高中
+            "math_calc_carry_borrow", "math_calc_decimal_point",
+            "math_calc_miscopy", "math_calc_multistep_break",
         },
     }
 
@@ -473,10 +479,17 @@ class ConversationAgent:
     def _extract_grade(text: str) -> int:
         """从文本中提取年级数字。0 表示未识别。"""
         import re as _re
-        # 小学：一年级～六年级 → 1-6
-        m = _re.search(r"([一二三四五六])(?:年|年级)", text)
+        # 先匹配初中/高中（"初中一年级""高中二年级"）——"初中"后跟"X年级"
+        m = _re.search(r"初(?:中)?\s*(?:([一二三])(?:年|年级)|(\d)\s*(?:年|年级))", text)
         if m:
-            return {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6}.get(m.group(1), 0)
+            digit = m.group(1) or m.group(2)
+            if digit:
+                return {"一": 7, "二": 8, "三": 9, "1": 7, "2": 8, "3": 9}.get(digit, 0)
+        m = _re.search(r"高(?:中)?\s*(?:([一二三])(?:年|年级)|(\d)\s*(?:年|年级))", text)
+        if m:
+            digit = m.group(1) or m.group(2)
+            if digit:
+                return {"一": 10, "二": 11, "三": 12, "1": 10, "2": 11, "3": 12}.get(digit, 0)
         # 初一/初二/初三 → 7-9
         m = _re.search(r"初([一二三])", text)
         if m:
@@ -485,7 +498,11 @@ class ConversationAgent:
         m = _re.search(r"高([一二三])", text)
         if m:
             return {"一": 10, "二": 11, "三": 12}.get(m.group(1), 0)
-        # 纯数字: 1年级, 2年级
+        # 小学：一年级～六年级 → 1-6（放最后，避免误匹配"初中一年级"）
+        m = _re.search(r"(?<!初)(?<!高)([一二三四五六])(?:年|年级)", text)
+        if m:
+            return {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6}.get(m.group(1), 0)
+        # 纯数字: 7年级=初一, 8年级=初二...
         m = _re.search(r"(\d+)\s*(?:年|年级)", text)
         if m:
             g = int(m.group(1))
@@ -1092,8 +1109,8 @@ class ConversationAgent:
             "lower": "比如20以内的进退位是不是真的过关了？数数和比大小的基础稳不稳？",
             "middle": "比如乘法口诀是不是到多位数就慢了？分数概念是不是只停留在背定义？",
             "upper": "比如小数和分数的转换是不是还有坑？应用题里的数量关系是不是靠猜？",
-            "junior": "比如方程思想是不是还没建立？函数图像看得懂吗？",
-            "senior": "比如函数和导数的关系是不是只是背公式？概率统计的直觉对不对？",
+            "junior": "比如小学的分数运算是不是真扎实？方程和函数的概念建立起来了吗？",
+            "senior": "比如函数思想是不是还停留在套公式？抽象符号和逻辑推理跟得上吗？",
         }
         bucket = self._grade_bucket(grade) if grade > 0 else "upper"
         grade_hook = grade_hook_texts.get(bucket, grade_hook_texts["upper"])
