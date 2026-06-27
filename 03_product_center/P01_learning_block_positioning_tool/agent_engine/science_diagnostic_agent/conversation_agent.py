@@ -515,12 +515,27 @@ class ConversationAgent:
             paraphrase = self._paraphrase_parent(session)
             candidates = self._narrow_candidates(session)
             return AgentTurnResult(messages=[AgentMessage(
-                text=candidates["text"],
+                text=paraphrase + "\n\n" + candidates["text"],
                 ui_block=candidates["ui_block"],
             )])
 
         # Stage 2: 按类别追问
         if stage == "narrow":
+            # 用户选了"都不像"→ 跳过类别追问，直接让家长自由描述
+            if option_ids.intersection({"narrow_unsure"}):
+                session.v2_stage = "amplifier"
+                return self._fallback_question(
+                    session,
+                    text="好的，那你直接告诉我：孩子卡住的时候，你觉得更像哪种情况？用你自己的话描述一下就行。",
+                    ui_block={
+                        "type": "short_text", "id": "v2_free_describe",
+                        "title": "用你的话描述一下",
+                        "allow_free_text": True,
+                        "free_text_label": "我自己说",
+                        "free_text_placeholder": "比如：他不是不会做，是每次概念题都说不清为什么选这个答案。",
+                        "options": [],
+                    },
+                )
             session.v2_stage = "amplifier"
             cat_code = self._infer_category_from_options(session)
             session.identified_category = cat_code
@@ -600,16 +615,18 @@ class ConversationAgent:
                 "目前我更想优先看两个方向：一个是「" + candidates[0] + "」，"
                 "另一个是「" + candidates[1] + "」。"
                 "先帮我分一下：这种错最常发生在哪一刻？"
+                '如果这两个都不像，请选「不确定」然后直接告诉我你的判断。'
             ),
             "ui_block": {
                 "type": "single_choice", "id": "v2_narrow",
                 "title": "最常发生在哪一刻？",
                 "allow_free_text": True,
-                "free_text_label": "不确定，我自己说",
+                "free_text_label": "都不像，我自己说",
+                "free_text_placeholder": "直接告诉我你的判断，我会重新分析。",
                 "options": [
                     {"id": "narrow_primary", "label": "更像「" + candidates[0] + "」"},
                     {"id": "narrow_secondary", "label": "更像「" + candidates[1] + "」"},
-                    {"id": "narrow_unsure", "label": "不确定"},
+                    {"id": "narrow_unsure", "label": "都不像，我直接说"},
                 ],
             },
         }

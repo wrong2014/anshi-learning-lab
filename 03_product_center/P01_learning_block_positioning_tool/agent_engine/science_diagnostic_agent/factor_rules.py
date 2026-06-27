@@ -420,18 +420,38 @@ def accumulate_scores(subject: Subject, option_ids: list[str], decay_prior: bool
 
 
 TEXT_SIGNAL_PATTERNS: list[tuple[re.Pattern[str], list[str]]] = [
+    # 概念理解问题 (→ A)
+    (re.compile(r"概念.*不懂|概念.*不清|不理解|不知道.*意思|不懂.*概念|概念.*模糊|基础.*不牢|基础.*差|基础.*不稳|没.*理解|理解不了|从来没懂|一直.*不懂|原理.*不懂|定义.*不清|背不下|记不住公式|公式.*意思|讲不清|解释不清|表达不出|说.*不出来"), ["stuck_concept_formula"]),
+    # 听懂但不会做
     (re.compile(r"听懂|听得懂|课堂.*懂|课上.*懂"), ["concern_understand_but_cannot_solve"]),
-    (re.compile(r"不会做|做不出来|不会启动|无从下手|不知道.*开始"), ["stuck_select_method"]),
+    # 不会启动/选方法 (→ B)
+    (re.compile(r"不会做|做不出来|不会启动|无从下手|不知道.*开始|不知道.*选|不知道.*用|选.*哪个|哪个.*公式|哪个.*方法"), ["stuck_select_method"]),
+    # 错题反复 (→ F)
     (re.compile(r"错题|反复错|总错|下次.*不会|看答案.*懂"), ["concern_repeated_wrong", "stuck_repeat_after_answer"]),
-    (re.compile(r"AI|豆包|DeepSeek|ChatGPT|答案"), ["concern_ai_answer_machine", "parent_ai_gives_answer"]),
+    # AI/答案依赖 (→ F)
+    (re.compile(r"AI|豆包|DeepSeek|ChatGPT|搜答案|查答案"), ["concern_ai_answer_machine", "parent_ai_gives_answer"]),
+    # 家长讲完整解法 (→ F)
     (re.compile(r"我.*讲|直接讲|讲完整|完整解法"), ["parent_explain_full_solution"]),
+    # 建模/方法选择 (→ B/E)
     (re.compile(r"关系|建模|模型|公式.*选|选.*公式|方法.*选"), ["stuck_select_method"]),
+    # 表征转换 (→ C)
     (re.compile(r"画图|受力图|过程图|电路图|列式|转化"), ["stuck_transform"]),
-    (re.compile(r"计算|单位|步骤|检查|粗心"), ["stuck_execution"]),
-    (re.compile(r"条件.*多|综合题.*乱|丢条件|漏条件|记不住|一下.*乱"), ["stuck_attention_overload", "probe_many_conditions_overload"]),
-    (re.compile(r"想当然|很有把握.*错|很笃定.*错|理解.*偏|概念.*错|直觉"), ["stuck_confident_wrong_idea", "probe_confident_but_wrong_rule"]),
+    # 计算执行 (→ D)
+    (re.compile(r"计算|单位|步骤|检查|粗心|算错|算不对|加减|乘除|进退位|借位|移项"), ["stuck_execution"]),
+    # 应用题/综合题 (→ E)
+    (re.compile(r"应用题|综合题|大题|不会.*列|列.*式子|列.*方程|换.*题|变.*题|换个.*就不会|换情境|生活题"), ["stuck_select_method", "math_repeat_same_ok_variant_fail"]),
+    # 注意力/多条件 (→ C/D)
+    (re.compile(r"条件.*多|综合题.*乱|丢条件|漏条件|记不住|一下.*乱|题目.*长|题干.*长"), ["stuck_attention_overload", "probe_many_conditions_overload"]),
+    # 错误概念/直觉 (→ A)
+    (re.compile(r"想当然|很有把握.*错|很笃定.*错|理解.*偏|概念.*错|直觉|方向.*反"), ["stuck_confident_wrong_idea", "probe_confident_but_wrong_rule"]),
+    # 物理方向符号
     (re.compile(r"方向|正负号|符号.*乱"), ["physics_direction_sign_confusion"]),
-    (re.compile(r"烦|急|崩|哭|逃|不想|抗拒|关系.*紧|吵"), ["concern_parent_help_gets_worse", "stuck_emotional_avoidance"]),
+    # 情绪/回避 (→ H)
+    (re.compile(r"烦|急|崩|哭|逃|不想|抗拒|关系.*紧|吵|怕.*数学|讨厌|紧张|焦虑|没信心"), ["concern_parent_help_gets_worse", "stuck_emotional_avoidance"]),
+    # 考试问题 (→ G)
+    (re.compile(r"考试.*错|考试.*不会|一考试|平时.*会.*考试|平时.*对.*考试|大考|考场|时间.*不够|来不及|做不完"), ["stuck_execution"]),
+    # 读题问题 (→ C)
+    (re.compile(r"读题|审题|看题|看错|漏看|看漏|没看到|没注意.*条件|没注意.*单位|题目.*没看清|题目.*理解错|题目.*读错"), ["stuck_read_problem"]),
 ]
 
 
