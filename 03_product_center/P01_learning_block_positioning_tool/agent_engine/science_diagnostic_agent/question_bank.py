@@ -187,6 +187,86 @@ def adaptive_probe_question(top_factors: list[FactorCode]) -> UIBlock:
             allow_skip=True,
         )
 
+    # ---- P1 新增：覆盖之前缺失的 6 个因子 ----
+
+    if FactorCode.F02_CONCEPT in factor_set:
+        return UIBlock(
+            id="adaptive_probe",
+            type=UIBlockType.SINGLE_CHOICE,
+            title="我再确认一下：孩子对概念的理解更像哪种？",
+            options=[
+                UIOption(id="probe_can_recite_not_explain", label="能背定义公式，但用自己的话说就卡住"),
+                UIOption(id="probe_confuses_similar_concepts", label="容易混淆相似概念"),
+                UIOption(id="probe_cannot_give_example", label="举不出生活里的例子或反例"),
+            ],
+            allow_skip=True,
+        )
+
+    if FactorCode.F03_LANGUAGE_SYMBOL in factor_set:
+        return UIBlock(
+            id="adaptive_probe",
+            type=UIBlockType.SINGLE_CHOICE,
+            title="读题时，孩子最容易在哪一步出问题？",
+            options=[
+                UIOption(id="probe_misreads_keyword", label="关键词、条件或单位常常看错"),
+                UIOption(id="probe_cannot_parse_diagram", label="题目里的图、表看不懂或漏信息"),
+                UIOption(id="probe_symbol_confusion", label="符号或术语容易搞混"),
+            ],
+            allow_skip=True,
+        )
+
+    if FactorCode.F06_EXECUTION in factor_set:
+        return UIBlock(
+            id="adaptive_probe",
+            type=UIBlockType.SINGLE_CHOICE,
+            title="做题过程中的错，更像是哪一种？",
+            options=[
+                UIOption(id="probe_calculation_error", label="计算或单位转换常出错"),
+                UIOption(id="probe_skip_steps", label="步骤跳太快，中间缺了关键一步"),
+                UIOption(id="probe_no_check", label="做完不检查，或检查也看不出来"),
+            ],
+            allow_skip=True,
+        )
+
+    if FactorCode.F11_ATTENTION_EXECUTIVE in factor_set:
+        return UIBlock(
+            id="adaptive_probe",
+            type=UIBlockType.SINGLE_CHOICE,
+            title="题目复杂度变化时，表现差异明显吗？",
+            options=[
+                UIOption(id="probe_simple_ok_complex_fail", label="简单题没问题，综合题就乱"),
+                UIOption(id="probe_loses_condition", label="多条件时经常漏掉一两个"),
+                UIOption(id="probe_mid_step_forget", label="做到一半忘了前面算什么"),
+            ],
+            allow_skip=True,
+        )
+
+    if FactorCode.F12_MISCONCEPTION in factor_set:
+        return UIBlock(
+            id="adaptive_probe",
+            type=UIBlockType.SINGLE_CHOICE,
+            title="孩子坚持的判断，更像哪种情况？",
+            options=[
+                UIOption(id="probe_wrong_causal", label="因果方向搞反了"),
+                UIOption(id="probe_intuitive_rule", label="用生活直觉代替学科规则"),
+                UIOption(id="probe_previous_mislearn", label="之前学的内容本身就理解错了"),
+            ],
+            allow_skip=True,
+        )
+
+    if FactorCode.F01_PRIOR_KNOWLEDGE in factor_set:
+        return UIBlock(
+            id="adaptive_probe",
+            type=UIBlockType.SINGLE_CHOICE,
+            title="遇到问题时，旧知识能调用出来吗？",
+            options=[
+                UIOption(id="probe_forgot_previous", label="之前学过的内容忘了，需要回头翻"),
+                UIOption(id="probe_knows_but_cant_use", label="知道学过，但想不起来怎么用"),
+                UIOption(id="probe_gap_specific_topic", label="只有某个特定章节/知识点有问题"),
+            ],
+            allow_skip=True,
+        )
+
     return UIBlock(
         id="adaptive_probe",
         type=UIBlockType.SINGLE_CHOICE,

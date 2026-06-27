@@ -114,14 +114,17 @@ class ConversationAgent:
         session.history.append({"role": "user", "content": user_message})
         session.turn_count += 1
 
+        # P0 修复：无论 LLM 是否可用，始终收集规则信号
+        # 这样 LLM 模式下用户的选项选择也会被记录到评分管道
+        self._record_rule_signals(
+            session=session,
+            text=text,
+            selected_option_ids=selected_option_ids or [],
+            selected_labels=selected_labels or [],
+            ui_block_id=ui_block_id,
+        )
+
         if not self.adapter.is_ready():
-            self._record_rule_signals(
-                session=session,
-                text=text,
-                selected_option_ids=selected_option_ids or [],
-                selected_labels=selected_labels or [],
-                ui_block_id=ui_block_id,
-            )
             return self._fallback_response(session)
 
         # 如果已经到了最大轮次，强制要求出结果
@@ -130,6 +133,10 @@ class ConversationAgent:
         result = self._call_llm(session, force_conclude=force_conclude)
         session.history.append({"role": "assistant", "content": self._raw_response_cache})
         self._remember_pending_ui_block(session, result)
+
+        # P0 修复：LLM 说要出结论时，用规则评分做交叉校验
+        if result.should_conclude and result.result:
+            result = self._ground_with_rules(session, result)
 
         if result.should_conclude:
             session.is_complete = True
@@ -150,6 +157,118 @@ class ConversationAgent:
         else:
             session.pending_ui_block_id = None
             session.pending_ui_block_type = None
+
+    # ---- 中文标签 → FactorCode 反向映射（模块级缓存） ----
+    _LABEL_TO_FACTOR: dict[str, FactorCode] | None = None
+
+    @classmethod
+    def _label_to_factor_map(cls) -> dict[str, FactorCode]:
+        if cls._LABEL_TO_FACTOR is None:
+            cls._LABEL_TO_FACTOR = {label: code for code, label in FACTOR_PUBLIC_LABELS.items()}
+        return cls._LABEL_TO_FACTOR
+
+    def _ground_with_rules(self, session: ConversationSession, llm_result: AgentTurnResult) -> AgentTurnResult:
+        """P0 修复：用规则评分校验 LLM 结论，双路径交叉验证。
+
+        1. 从 session.fallback_option_ids 计算规则评分
+        2. LLM primary_factor（中文）→ FactorCode 反向查找
+        3. 一致 → 高置信，使用 LLM 文案
+        4. 不一致 → 以规则评分为主，标记需人工复核
+        5. 合并 evidence/missing_information
+        """
+        llm_data = llm_result.result or {}
+        rule_scores = accumulate_scores(session.fallback_subject, session.fallback_option_ids)
+
+        # 规则评分排序
+        sorted_rules = sorted(rule_scores.items(), key=lambda item: item[1], reverse=True)
+        rule_top1 = sorted_rules[0][0] if sorted_rules else None
+        rule_top3 = [factor for factor, _ in sorted_rules[:3]]
+
+        # LLM primary_factor 反向查找 FactorCode
+        llm_primary_label = str(llm_data.get("primary_factor") or "")
+        label_map = self._label_to_factor_map()
+        llm_primary_code = label_map.get(llm_primary_label)
+
+        # ----- 交叉校验 -----
+        is_aligned = (llm_primary_code is not None and llm_primary_code == rule_top1)
+
+        if is_aligned:
+            # 一致：信任 LLM 文案，补充规则 evidence
+            primary_code = llm_primary_code
+            secondary_codes = [
+                label_map.get(label)
+                for label in (llm_data.get("secondary_factors") or [])
+                if label_map.get(label) and label_map.get(label) != primary_code
+            ][:2]
+            human_review = False
+        elif rule_top1 and rule_scores.get(rule_top1, 0) >= 1.5:
+            # 不一致但规则有足够信号：以规则为主
+            primary_code = rule_top1
+            secondary_codes = rule_top3[1:3] if len(rule_top3) >= 2 else []
+            # 如果 LLM 也有判断，作为次因子备选
+            if llm_primary_code and llm_primary_code not in secondary_codes and llm_primary_code != primary_code:
+                secondary_codes.append(llm_primary_code)
+            secondary_codes = secondary_codes[:2]
+            human_review = True
+        else:
+            # 规则信号太弱，保留 LLM 原始判断但标记低置信
+            primary_code = llm_primary_code or rule_top1
+            secondary_codes = (
+                [label_map.get(label) for label in (llm_data.get("secondary_factors") or []) if label_map.get(label)]
+                if llm_primary_code
+                else rule_top3[1:3]
+            )
+            human_review = True
+
+        primary_label = FACTOR_PUBLIC_LABELS.get(primary_code, str(primary_code))
+        action = FACTOR_ACTIONS.get(primary_code, FACTOR_ACTIONS[FactorCode.F07_METACOGNITION])
+
+        # ----- 合并 evidence -----
+        rule_evidence = [
+            OPTION_PUBLIC_LABELS.get(option_id, option_id)
+            for option_id in session.fallback_option_ids
+            if option_id in OPTION_PUBLIC_LABELS
+        ]
+        llm_evidence = llm_data.get("evidence") or []
+        merged_evidence = list(dict.fromkeys(llm_evidence + rule_evidence))[:6]
+        if not merged_evidence:
+            merged_evidence = ["当前主要依据来自家长自然描述，证据还偏少。"]
+
+        # ----- 合并 missing_information -----
+        llm_missing = llm_data.get("missing_information") or []
+        rule_missing: list[str] = []
+        if not session.fallback_option_ids:
+            rule_missing.append("还缺孩子自己的说法或一道具体错题。")
+        merged_missing = list(dict.fromkeys(llm_missing + rule_missing))
+
+        # ----- 构建最终 result -----
+        secondary_labels = [FACTOR_PUBLIC_LABELS.get(code, "") for code in secondary_codes if code]
+
+        grounded_result: dict[str, Any] = {
+            "subject": session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else llm_data.get("subject", "unknown"),
+            "primary_factor": primary_label,
+            "primary_desc": llm_data.get("primary_desc", f"目前线索最集中在「{primary_label}」。"),
+            "secondary_factors": secondary_labels,
+            "evidence": merged_evidence,
+            "missing_information": merged_missing,
+            "parent_common_mistake": action["mistake"],
+            "next_7_days_stop": action["stop"],
+            "next_7_days_start": action["start"],
+            "public_summary": llm_data.get("public_summary", (
+                f"目前更像是「{primary_label}」在优先影响这次理科学习。"
+                f"先不要把问题扩大成孩子不努力，未来 7 天只观察一个小动作：{action['start']}"
+            )),
+            "human_review_needed": human_review,
+            "cross_validation": "aligned" if is_aligned else "rule_override" if rule_top1 and rule_scores.get(rule_top1, 0) >= 1.5 else "weak_signal",
+        }
+
+        return AgentTurnResult(
+            messages=llm_result.messages,
+            should_conclude=True,
+            result=grounded_result,
+            thinking=llm_result.thinking,
+            collected_signals=llm_result.collected_signals,
+        )
 
     def _call_llm(self, session: ConversationSession, force_conclude: bool = False) -> AgentTurnResult:
         """调用 LLM 获取下一轮回复"""
@@ -238,10 +357,16 @@ class ConversationAgent:
         block_id = str(block.get("id") or "")
         semantic_text = f"{block_id} {title} {body}"
 
-        should_be_multi = bool(re.search(
-            r"父母|家长|怎么帮|帮助方式|AI|错题后|做完错题|通常.*做法|通常会|一般会|处理方式|复盘|重做",
-            semantic_text,
-        ))
+        # P2 修复：用多模式组合判断，避免单关键词（如"AI"）误触发
+        MULTI_SIGNALS = [
+            r"多选",
+            r"可以多选",
+            r"可能不止",
+            r"通常会|一般会|最常",
+            r"哪些|哪种.*帮",
+            r"怎么帮|帮助方式",
+        ]
+        should_be_multi = any(re.search(pat, semantic_text) for pat in MULTI_SIGNALS)
 
         if should_be_multi:
             block_type = "multi_choice"
@@ -293,7 +418,10 @@ class ConversationAgent:
             inferred_subject = infer_subject_from_text(combined_text)
             if session.fallback_subject == Subject.UNKNOWN and inferred_subject != Subject.UNKNOWN:
                 session.fallback_subject = inferred_subject
-            session.fallback_option_ids.extend(infer_option_ids_from_text(combined_text))
+            # P0 修复：只对用户自由文本做 option_id 推断，不对 UI 标签文本推断
+            # 避免标签中文文本（如"看懂答案"）被正则误匹配注入假 option_id
+            if text and text.strip():
+                session.fallback_option_ids.extend(infer_option_ids_from_text(text.strip()))
 
         session.fallback_option_ids = list(dict.fromkeys(session.fallback_option_ids))
 

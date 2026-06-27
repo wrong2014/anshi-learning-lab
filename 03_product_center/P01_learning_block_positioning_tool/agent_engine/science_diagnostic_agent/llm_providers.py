@@ -50,6 +50,25 @@ ALLOWED_OPTION_IDS = {
     "probe_emotion_blocks_start",
     "probe_many_conditions_overload",
     "probe_confident_but_wrong_rule",
+    # P1 新增
+    "probe_can_recite_not_explain",
+    "probe_confuses_similar_concepts",
+    "probe_cannot_give_example",
+    "probe_misreads_keyword",
+    "probe_cannot_parse_diagram",
+    "probe_symbol_confusion",
+    "probe_calculation_error",
+    "probe_skip_steps",
+    "probe_no_check",
+    "probe_simple_ok_complex_fail",
+    "probe_loses_condition",
+    "probe_mid_step_forget",
+    "probe_wrong_causal",
+    "probe_intuitive_rule",
+    "probe_previous_mislearn",
+    "probe_forgot_previous",
+    "probe_knows_but_cant_use",
+    "probe_gap_specific_topic",
 }
 
 

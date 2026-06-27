@@ -4,6 +4,7 @@ from .factor_rules import (
     FACTOR_ACTIONS,
     FACTOR_PUBLIC_LABELS,
     OPTION_PUBLIC_LABELS,
+    OPTION_WEIGHTS,
     accumulate_scores,
     infer_option_ids_from_text,
     infer_subject_from_text,
@@ -90,8 +91,19 @@ class DiagnosticEngine:
         for answer in session.answers:
             option_ids.extend(answer.selected_option_ids)
             if answer.free_text:
-                # V1 stores text as evidence. LLM extraction will map free text to factors later.
-                evidence_by_factor.setdefault(FactorCode.F07_METACOGNITION, []).append(answer.free_text)
+                # P1 修复：用规则正则从自由文本提取信号，不再全部归到 F07
+                inferred_ids = infer_option_ids_from_text(answer.free_text)
+                option_ids.extend(inferred_ids)
+                # 将自由文本关联到推断出的因子作为证据
+                for inferred_id in set(inferred_ids):
+                    for factor_code in OPTION_WEIGHTS.get(inferred_id, {}):
+                        if answer.free_text not in evidence_by_factor.get(factor_code, []):
+                            evidence_by_factor.setdefault(factor_code, []).append(answer.free_text)
+                # 如果正则没匹配到任何信号，保留文本但不绑定因子
+                if not inferred_ids:
+                    evidence_by_factor.setdefault(FactorCode.F07_METACOGNITION, []).append(
+                        f"[待分类] {answer.free_text}"
+                    )
 
         raw_scores = accumulate_scores(session.subject, option_ids)
         if not raw_scores:

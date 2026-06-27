@@ -70,6 +70,25 @@ OPTION_WEIGHTS: dict[str, dict[FactorCode, float]] = {
     "probe_emotion_blocks_start": {FactorCode.F09_EMOTION: 3},
     "probe_many_conditions_overload": {FactorCode.F11_ATTENTION_EXECUTIVE: 3},
     "probe_confident_but_wrong_rule": {FactorCode.F12_MISCONCEPTION: 3},
+    # P1 新增：6 个缺失因子的自适应追问权重
+    "probe_can_recite_not_explain": {FactorCode.F02_CONCEPT: 3},
+    "probe_confuses_similar_concepts": {FactorCode.F02_CONCEPT: 2, FactorCode.F01_PRIOR_KNOWLEDGE: 1},
+    "probe_cannot_give_example": {FactorCode.F02_CONCEPT: 3, FactorCode.F04_REPRESENTATION: 1},
+    "probe_misreads_keyword": {FactorCode.F03_LANGUAGE_SYMBOL: 3},
+    "probe_cannot_parse_diagram": {FactorCode.F03_LANGUAGE_SYMBOL: 2, FactorCode.F04_REPRESENTATION: 2},
+    "probe_symbol_confusion": {FactorCode.F03_LANGUAGE_SYMBOL: 3, FactorCode.F02_CONCEPT: 1},
+    "probe_calculation_error": {FactorCode.F06_EXECUTION: 3, FactorCode.F11_ATTENTION_EXECUTIVE: 1},
+    "probe_skip_steps": {FactorCode.F06_EXECUTION: 3, FactorCode.F07_METACOGNITION: 1},
+    "probe_no_check": {FactorCode.F06_EXECUTION: 2, FactorCode.F08_STRATEGY: 2},
+    "probe_simple_ok_complex_fail": {FactorCode.F11_ATTENTION_EXECUTIVE: 3, FactorCode.F05_MODEL_TRANSFER: 1},
+    "probe_loses_condition": {FactorCode.F11_ATTENTION_EXECUTIVE: 3, FactorCode.F03_LANGUAGE_SYMBOL: 1},
+    "probe_mid_step_forget": {FactorCode.F11_ATTENTION_EXECUTIVE: 3, FactorCode.F06_EXECUTION: 1},
+    "probe_wrong_causal": {FactorCode.F12_MISCONCEPTION: 3, FactorCode.F02_CONCEPT: 1},
+    "probe_intuitive_rule": {FactorCode.F12_MISCONCEPTION: 3, FactorCode.F05_MODEL_TRANSFER: 1},
+    "probe_previous_mislearn": {FactorCode.F12_MISCONCEPTION: 2, FactorCode.F01_PRIOR_KNOWLEDGE: 2},
+    "probe_forgot_previous": {FactorCode.F01_PRIOR_KNOWLEDGE: 3},
+    "probe_knows_but_cant_use": {FactorCode.F01_PRIOR_KNOWLEDGE: 2, FactorCode.F05_MODEL_TRANSFER: 2},
+    "probe_gap_specific_topic": {FactorCode.F01_PRIOR_KNOWLEDGE: 2, FactorCode.F12_MISCONCEPTION: 1},
 }
 
 
@@ -225,13 +244,42 @@ OPTION_PUBLIC_LABELS: dict[str, str] = {
     "probe_emotion_blocks_start": "明显烦躁、紧张或直接逃开",
     "probe_many_conditions_overload": "条件一多就乱，容易丢条件或跳步骤",
     "probe_confident_but_wrong_rule": "孩子很有把握，但用的是错误规则或直觉",
+    # P1 新增标签
+    "probe_can_recite_not_explain": "能背定义公式但不能用自己的话解释",
+    "probe_confuses_similar_concepts": "容易混淆相似概念",
+    "probe_cannot_give_example": "举不出生活中的例子或反例",
+    "probe_misreads_keyword": "关键词、条件或单位常看错",
+    "probe_cannot_parse_diagram": "题目里的图表看不懂或漏信息",
+    "probe_symbol_confusion": "符号或术语容易搞混",
+    "probe_calculation_error": "计算或单位转换常出错",
+    "probe_skip_steps": "步骤跳太快，中间缺了关键一步",
+    "probe_no_check": "做完不检查或检查也看不出来",
+    "probe_simple_ok_complex_fail": "简单题没问题，综合题就乱",
+    "probe_loses_condition": "多条件时经常漏掉一两个",
+    "probe_mid_step_forget": "做到一半忘了前面算什么",
+    "probe_wrong_causal": "因果方向搞反了",
+    "probe_intuitive_rule": "用生活直觉代替学科规则",
+    "probe_previous_mislearn": "之前学的内容本身就理解错了",
+    "probe_forgot_previous": "之前学过的内容忘了",
+    "probe_knows_but_cant_use": "知道学过但想不起来怎么用",
+    "probe_gap_specific_topic": "只有某个特定章节/知识点有问题",
 }
 
 
-def accumulate_scores(subject: Subject, option_ids: list[str]) -> dict[FactorCode, float]:
+def accumulate_scores(subject: Subject, option_ids: list[str], decay_prior: bool = True) -> dict[FactorCode, float]:
+    """计算因子得分。
+
+    decay_prior=True（默认）时，学科先验权重随 option 数量衰减：
+    每多一个 option 衰减 25%，4 个以上时先验归零，完全由证据驱动。
+    """
     scores: dict[FactorCode, float] = defaultdict(float)
-    for factor, value in SUBJECT_PRIORS.get(subject, {}).items():
-        scores[factor] += value
+    option_count = len(option_ids)
+
+    # P2 修复：先验权重随证据积累衰减
+    decay = max(0.0, 1.0 - 0.25 * option_count) if decay_prior else 1.0
+    if decay > 0:
+        for factor, value in SUBJECT_PRIORS.get(subject, {}).items():
+            scores[factor] += value * decay
 
     for option_id in option_ids:
         for factor, value in OPTION_WEIGHTS.get(option_id, {}).items():
