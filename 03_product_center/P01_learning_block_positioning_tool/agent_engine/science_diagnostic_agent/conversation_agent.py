@@ -75,7 +75,7 @@ class ConversationAgent:
             # LLM 不可用时的降级处理
             return session, AgentTurnResult(
                 messages=[AgentMessage(
-                    text="你好，我先听你说。最近孩子在数学、物理或化学学习里，哪件事最让你担心？像发微信一样说一段就行：哪一科、发生了什么、孩子怎么反应、你当时怎么帮。"
+                    text="嗨，我是你的学习诊断助手～你先跟我聊聊：孩子最近学数学、物理或者化学，有没有哪件事让你特别头疼？就像跟朋友发微信一样说就行——哪一科、当时发生了什么、孩子什么反应、你当时怎么弄的。不用写很长，几句话就好。"
                 )]
             )
 
@@ -432,7 +432,7 @@ class ConversationAgent:
         if session.fallback_subject == Subject.UNKNOWN and "fallback_subject_select" not in session.fallback_asked_block_ids:
             return self._fallback_question(
                 session,
-                text="我先把范围收窄一点。这件事主要发生在哪一科？如果你已经说过，也可以直接用自己的话补充。",
+                text="我先确认一下，这件事主要是哪一科？如果你之前已经提过，就点一下就好。",
                 ui_block={
                     "type": "single_choice",
                     "id": "fallback_subject_select",
@@ -462,7 +462,7 @@ class ConversationAgent:
         if not option_ids.intersection(stuck_ids) and "fallback_stuck_step" not in session.fallback_asked_block_ids:
             return self._fallback_question(
                 session,
-                text="我听到的是一次真实卡住。只看这一次，更像先卡在哪一步？可以选一个，也可以自己说。",
+                text="我听下来，孩子确实遇到坎了。你感觉他最容易在哪一步卡住？选最像的一个就行。",
                 ui_block={
                     "type": "single_choice",
                     "id": "fallback_stuck_step",
@@ -497,12 +497,12 @@ class ConversationAgent:
         if not option_ids.intersection(parent_ids) and "fallback_parent_support" not in session.fallback_asked_block_ids:
             return self._fallback_question(
                 session,
-                text="这个时候你一般会怎么帮？这里可能不止一种，选最常发生的就行。",
+                text="孩子卡住的时候，你一般会怎么做？可以多选，这个没有对错，我就是想看看你的方式和孩子的卡点是不是一个频道的。",
                 ui_block={
                     "type": "multi_choice",
                     "id": "fallback_parent_support",
-                    "title": "你当时一般怎么帮？",
-                    "body": "可以多选。不是评判你对错，是看帮助方式和卡点是否对位。",
+                    "title": "你一般会怎么帮？",
+                    "body": "可以多选。选你平时最常做的就行，不用纠结。",
                     "allow_skip": True,
                     "allow_free_text": True,
                     "free_text_label": "我家的情况不太一样",
@@ -531,7 +531,7 @@ class ConversationAgent:
         if not option_ids.intersection(review_ids) and "fallback_review_probe" not in session.fallback_asked_block_ids:
             return self._fallback_question(
                 session,
-                text="最后我再确认一个会影响准确率的点：错题或难题之后，最常发生什么？",
+                text="最后一个问题～题目做错或者卡住之后，你家通常接下来会发生什么？",
                 ui_block={
                     "type": "multi_choice",
                     "id": "fallback_review_probe",
@@ -559,60 +559,286 @@ class ConversationAgent:
         session.pending_ui_block_id = None
         session.pending_ui_block_type = None
         return AgentTurnResult(
-            messages=[AgentMessage(text="我先按你刚才说到的线索，整理一个可执行的判断。")],
+            messages=[AgentMessage(text="好的，我帮你理了一下，下面是我的判断～")],
             should_conclude=True,
             result=result,
         )
 
+    # ---- 动态学科探针：根据用户选的 stuck_step 匹配追问 ----
+    _DYNAMIC_PROBES: dict[Subject, dict[str, dict]] = {
+        Subject.MATH: {
+            "stuck_execution": {
+                "text": "数学计算出错，更像是哪一种？我想定位到具体环节。",
+                "options": [
+                    {"id": "math_calc_carry_borrow", "label": "进退位、借位容易错"},
+                    {"id": "math_calc_miscopy", "label": "抄错数字、符号或漏写"},
+                    {"id": "math_calc_decimal_point", "label": "小数点、分数约分常出错"},
+                    {"id": "math_calc_multistep_break", "label": "多步计算中间某步断掉或记错"},
+                ],
+            },
+            "stuck_concept_formula": {
+                "text": "概念理解上，哪种情况更多？",
+                "options": [
+                    {"id": "math_concept_recite_only", "label": "公式定义会背，但不会解释为什么"},
+                    {"id": "math_concept_confuse", "label": "容易混淆相似概念或公式"},
+                    {"id": "math_concept_real_meaning", "label": "说不清算式每一步在算什么"},
+                ],
+            },
+            "stuck_read_problem": {
+                "text": "读题时，更接近哪种情况？",
+                "options": [
+                    {"id": "math_read_miss_condition", "label": "漏看条件、数字或单位"},
+                    {"id": "math_read_unsure_keyword", "label": "不确定关键词（如'至少''不超过'）"},
+                    {"id": "math_read_not_understand_ask", "label": "读完不知道题目到底问什么"},
+                ],
+            },
+            "stuck_transform": {
+                "text": "转化这一步，更卡在哪里？",
+                "options": [
+                    {"id": "math_trans_text_to_expr", "label": "文字描述转不成算式或方程"},
+                    {"id": "math_trans_cant_draw", "label": "不会画线段图、示意图来帮忙"},
+                    {"id": "math_trans_table_relation", "label": "不会列表格或梳理数量关系"},
+                ],
+            },
+            "stuck_select_method": {
+                "text": "选方法时，更像哪种情况？",
+                "options": [
+                    {"id": "math_method_no_idea", "label": "不知道用什么公式或方法"},
+                    {"id": "math_method_unsure", "label": "感觉会用但不确定对不对"},
+                    {"id": "math_method_right_but_why", "label": "经常选对但说不清为什么选它"},
+                ],
+            },
+            "stuck_repeat_after_answer": {
+                "text": "这道题的类型，之前遇到过吗？",
+                "options": [
+                    {"id": "math_repeat_same_ok_variant_fail", "label": "同款题当时能做，换个数就不会"},
+                    {"id": "math_repeat_understand_then_forget", "label": "当时说懂了，过两天完全不记得"},
+                    {"id": "math_repeat_only_cram", "label": "主要靠考前突击，考完就忘"},
+                ],
+            },
+            "stuck_attention_overload": {
+                "text": "什么时候最容易乱？",
+                "options": [
+                    {"id": "math_attn_multi_condition", "label": "题目条件超过3个就开始丢"},
+                    {"id": "math_attn_composite", "label": "单独知识点会，综合题就乱"},
+                    {"id": "math_attn_midway_forget", "label": "做到后面忘了前面算什么"},
+                ],
+            },
+            "stuck_confident_wrong_idea": {
+                "text": "孩子很笃定但错了，更像哪种？",
+                "options": [
+                    {"id": "math_wrong_causal_direction", "label": "因果关系搞反了"},
+                    {"id": "math_wrong_intuitive_rule", "label": "用生活经验代替数学规则"},
+                    {"id": "math_wrong_previous_misunderstand", "label": "之前某个知识点就理解错了"},
+                ],
+            },
+        },
+        Subject.PHYSICS: {
+            "stuck_execution": {
+                "text": "物理计算出错或步骤问题，更像哪种？",
+                "options": [
+                    {"id": "phys_calc_unit_direction", "label": "单位、方向、正负号容易搞混"},
+                    {"id": "phys_calc_formula_sub", "label": "公式会选但代入数字总出错"},
+                    {"id": "phys_calc_multistep_lost", "label": "多步推导中间漏了关键一步"},
+                ],
+            },
+            "stuck_concept_formula": {
+                "text": "物理概念理解，更像哪种？",
+                "options": [
+                    {"id": "phys_concept_formula_no_meaning", "label": "公式会背，但每个量代表什么说不清"},
+                    {"id": "phys_concept_naive_theory", "label": "容易被直觉经验带偏"},
+                    {"id": "phys_concept_cant_explain", "label": "能算对但讲不出为什么"},
+                ],
+            },
+            "stuck_read_problem": {
+                "text": "物理读题，更像哪种？",
+                "options": [
+                    {"id": "phys_read_miss_condition", "label": "漏看条件或物理量"},
+                    {"id": "phys_read_unsure_scene", "label": "不确定题目描述的是什么场景"},
+                ],
+            },
+            "stuck_transform": {
+                "text": "物理建模，卡在哪一步？",
+                "options": [
+                    {"id": "phys_trans_no_diagram", "label": "不画受力图/过程图/电路图就套公式"},
+                    {"id": "phys_trans_scene_to_model", "label": "文字场景转化不成物理模型"},
+                ],
+            },
+            "stuck_select_method": {
+                "text": "选方法时更像哪种？",
+                "options": [
+                    {"id": "phys_method_no_idea", "label": "不知道用哪个公式或定律"},
+                    {"id": "phys_method_confuse_law", "label": "混淆相似定律或公式"},
+                ],
+            },
+            "stuck_repeat_after_answer": {
+                "text": "物理题复测时？",
+                "options": [
+                    {"id": "phys_repeat_template_ok", "label": "同类题能做，换个情景就不会"},
+                    {"id": "phys_repeat_forget_quickly", "label": "看懂后过两天又不会了"},
+                ],
+            },
+            "stuck_attention_overload": {
+                "text": "物理题什么时候最乱？",
+                "options": [
+                    {"id": "phys_attn_multi_object", "label": "题目涉及多物体/多过程就乱"},
+                    {"id": "phys_attn_composite", "label": "力学电学混合题完全理不清"},
+                ],
+            },
+            "stuck_confident_wrong_idea": {
+                "text": "物理直觉出错，更像哪种？",
+                "options": [
+                    {"id": "phys_wrong_force_motion", "label": "力与运动关系直觉错误"},
+                    {"id": "phys_wrong_current_consumed", "label": "认为电流会被用电器消耗"},
+                ],
+            },
+        },
+        Subject.CHEMISTRY: {
+            "stuck_execution": {
+                "text": "化学计算或书写，更像哪种错？",
+                "options": [
+                    {"id": "chem_calc_balance", "label": "方程式配平容易出错"},
+                    {"id": "chem_calc_valence", "label": "化合价或化学式写错"},
+                    {"id": "chem_calc_mole_mass", "label": "物质的量或质量计算混乱"},
+                ],
+            },
+            "stuck_concept_formula": {
+                "text": "化学概念理解，更像哪种？",
+                "options": [
+                    {"id": "chem_concept_particle_confuse", "label": "分不清原子、分子、离子"},
+                    {"id": "chem_concept_conservation", "label": "守恒观念没有真正建立"},
+                ],
+            },
+            "stuck_read_problem": {
+                "text": "化学读题，更像哪种？",
+                "options": [
+                    {"id": "chem_read_miss_condition", "label": "漏看物质状态或反应条件"},
+                    {"id": "chem_read_unsure_symbol", "label": "化学式或符号不认识"},
+                ],
+            },
+            "stuck_transform": {
+                "text": "化学表征，卡在哪？",
+                "options": [
+                    {"id": "chem_trans_macro_micro", "label": "宏观现象和微观粒子对不上"},
+                    {"id": "chem_trans_equation_to_scene", "label": "方程式和实验场景联系不起来"},
+                ],
+            },
+            "stuck_select_method": {
+                "text": "化学推断，更像哪种？",
+                "options": [
+                    {"id": "chem_method_no_idea", "label": "不知道从哪个物质或反应入手"},
+                    {"id": "chem_method_cant_transfer", "label": "反应规律换到新物质就不会用"},
+                ],
+            },
+            "stuck_repeat_after_answer": {
+                "text": "化学复测时？",
+                "options": [
+                    {"id": "chem_repeat_template_ok", "label": "同类题换物质就不会"},
+                    {"id": "chem_repeat_forget_quickly", "label": "看完答案过两天忘"},
+                ],
+            },
+            "stuck_attention_overload": {
+                "text": "化学题什么时候最乱？",
+                "options": [
+                    {"id": "chem_attn_multi_step", "label": "推断流程一多就乱"},
+                    {"id": "chem_attn_mix_calc", "label": "实验+计算混合题理不清"},
+                ],
+            },
+            "stuck_confident_wrong_idea": {
+                "text": "化学直觉出错，更像哪种？",
+                "options": [
+                    {"id": "chem_wrong_valence_misconception", "label": "化合价或电子观念理解偏差"},
+                    {"id": "chem_wrong_reaction_rule", "label": "反应规律用反或套错"},
+                ],
+            },
+        },
+    }
+
     def _fallback_subject_probe(self, session: ConversationSession) -> AgentTurnResult | None:
         subject = session.fallback_subject
         option_ids = set(session.fallback_option_ids)
-        probe_ids_by_subject = {
-            Subject.MATH: {
-                "block_id": "fallback_math_probe",
-                "ids": {"math_same_template_ok_variant_fail", "math_symbol_condition_missed", "math_multi_condition_overload"},
-                "text": "数学里我再收窄一点，哪种更像？",
-                "options": [
-                    {"id": "math_same_template_ok_variant_fail", "label": "例题同款能做，变式不会"},
-                    {"id": "math_symbol_condition_missed", "label": "题干条件、符号或图形关系常漏掉"},
-                    {"id": "math_multi_condition_overload", "label": "条件一多就乱、漏条件"},
-                ],
-            },
-            Subject.PHYSICS: {
-                "block_id": "fallback_physics_probe",
-                "ids": {"physics_no_diagram", "physics_formula_without_quantity_meaning", "physics_naive_force_motion", "physics_direction_sign_confusion"},
-                "text": "物理里我再收窄一点，哪种更像？",
-                "options": [
-                    {"id": "physics_no_diagram", "label": "不画过程图、受力图或电路图就套公式"},
-                    {"id": "physics_formula_without_quantity_meaning", "label": "公式会背，但每个量代表什么说不清"},
-                    {"id": "physics_naive_force_motion", "label": "容易被直觉经验带偏"},
-                    {"id": "physics_direction_sign_confusion", "label": "方向、正负号或单位容易混乱"},
-                ],
-            },
-            Subject.CHEMISTRY: {
-                "block_id": "fallback_chemistry_probe",
-                "ids": {"chem_symbol_equation_mismatch", "chem_rule_cannot_transfer", "chem_conservation_or_valence_misconception"},
-                "text": "化学里我再收窄一点，哪种更像？",
-                "options": [
-                    {"id": "chem_symbol_equation_mismatch", "label": "现象、粒子变化和方程式对不上"},
-                    {"id": "chem_rule_cannot_transfer", "label": "反应规律换到新物质就不会用"},
-                    {"id": "chem_conservation_or_valence_misconception", "label": "守恒、化合价或微粒观念理解偏了"},
-                ],
-            },
+        block_id_map = {
+            Subject.MATH: "fallback_math_probe",
+            Subject.PHYSICS: "fallback_physics_probe",
+            Subject.CHEMISTRY: "fallback_chemistry_probe",
         }
-        config = probe_ids_by_subject.get(subject)
-        if not config:
+        block_id = block_id_map.get(subject)
+        if not block_id:
             return None
-        block_id = config["block_id"]
-        if block_id in session.fallback_asked_block_ids or option_ids.intersection(config["ids"]):
+        if block_id in session.fallback_asked_block_ids:
             return None
+
+        # 找出用户选的 stuck_step
+        stuck_step_ids = {
+            "stuck_execution", "stuck_concept_formula", "stuck_read_problem",
+            "stuck_transform", "stuck_select_method", "stuck_repeat_after_answer",
+            "stuck_attention_overload", "stuck_confident_wrong_idea",
+            "stuck_emotional_avoidance",
+        }
+        matched_stuck = option_ids.intersection(stuck_step_ids)
+        stuck_step = next(iter(matched_stuck), None)
+
+        # 根据 stuck_step 选择动态探针，无匹配时用通用探针
+        subject_probes = self._DYNAMIC_PROBES.get(subject, {})
+        probe = subject_probes.get(stuck_step or "") if stuck_step else None
+
+        if probe:
+            config = {
+                "block_id": block_id,
+                "text": probe["text"],
+                "options": probe["options"],
+                "ids": {opt["id"] for opt in probe["options"]},
+            }
+        else:
+            # 通用兜底：保留原逻辑，问学科经典问题
+            fallback_probes = {
+                Subject.MATH: {
+                    "text": "数学里我再收窄一点，哪种更像？",
+                    "options": [
+                        {"id": "math_same_template_ok_variant_fail", "label": "例题同款能做，变式不会"},
+                        {"id": "math_symbol_condition_missed", "label": "题干条件、符号或图形关系常漏掉"},
+                        {"id": "math_multi_condition_overload", "label": "条件一多就乱、漏条件"},
+                    ],
+                },
+                Subject.PHYSICS: {
+                    "text": "物理里我再收窄一点，哪种更像？",
+                    "options": [
+                        {"id": "physics_no_diagram", "label": "不画过程图、受力图或电路图就套公式"},
+                        {"id": "physics_formula_without_quantity_meaning", "label": "公式会背，但每个量代表什么说不清"},
+                        {"id": "physics_naive_force_motion", "label": "容易被直觉经验带偏"},
+                        {"id": "physics_direction_sign_confusion", "label": "方向、正负号或单位容易混乱"},
+                    ],
+                },
+                Subject.CHEMISTRY: {
+                    "text": "化学里我再收窄一点，哪种更像？",
+                    "options": [
+                        {"id": "chem_symbol_equation_mismatch", "label": "现象、粒子变化和方程式对不上"},
+                        {"id": "chem_rule_cannot_transfer", "label": "反应规律换到新物质就不会用"},
+                        {"id": "chem_conservation_or_valence_misconception", "label": "守恒、化合价或微粒观念理解偏了"},
+                    ],
+                },
+            }
+            fb = fallback_probes.get(subject)
+            if not fb:
+                return None
+            config = {
+                "block_id": block_id,
+                "text": fb["text"],
+                "options": fb["options"],
+                "ids": {opt["id"] for opt in fb["options"]},
+            }
+
+        # 已经问过或已经覆盖了这些选项 → 跳过
+        if option_ids.intersection(config["ids"]):
+            return None
+
         return self._fallback_question(
             session,
-            text=str(config["text"]),
+            text=config["text"],
             ui_block={
                 "type": "single_choice",
                 "id": block_id,
-                "title": str(config["text"]),
+                "title": config["text"],
                 "allow_free_text": True,
                 "free_text_label": "都不像，我自己说",
                 "free_text_placeholder": "用你自己的话补一句具体表现。",
@@ -630,6 +856,129 @@ class ConversationAgent:
         session.pending_ui_block_type = str(ui_block.get("type") or "")
         return AgentTurnResult(messages=[AgentMessage(text=text, ui_block=ui_block)])
 
+    # ---- 个性化建议库（口语版） ----
+    _PERSONALIZED_ADVICE: dict[str, dict[str, str]] = {
+        "math_calc_carry_borrow": {
+            "problem_name": "进退位容易出错",
+            "why_happens": (
+                "很多孩子到五年级了进退位还会出错，不是粗心，是当初学的时候这个动作没有练到'不过脑子就能做对'的程度。"
+                "后面题目一复杂，脑子要同时处理好几件事，进退位这个基本功就自动掉链子了。"
+            ),
+            "try_this": (
+                "每天就做5道进退位专项题，不贪多。从两位数进退位开始，每做一步嘴里念出来："
+                "'个位8加7等于15，写5进1，十位变成...'——念出声是帮孩子把动作变成本能。"
+            ),
+        },
+        "math_calc_miscopy": {
+            "problem_name": "抄错数字或符号",
+            "why_happens": (
+                "抄错数字不是马虎，是孩子从题目到草稿纸这个过程里，眼睛和手没形成稳定的对接。"
+                "很多孩子是'扫一眼就写'，中间漏了一拍。"
+            ),
+            "try_this": (
+                "练一个小动作：抄完题目后，合上草稿纸，让孩子凭记忆把刚才抄的数字再默写一遍，"
+                "然后跟原题对照。找到哪里不一样，他自己就会意识到漏在哪。"
+            ),
+        },
+        "math_calc_decimal_point": {
+            "problem_name": "小数点和分数易出错",
+            "why_happens": (
+                "小数点、约分这些，本质上不是计算问题，是'规则感'还没形成。"
+                "孩子知道要小数点对齐、要约分，但做题时一紧张就忘了——这是正常的，需要反复练到变成条件反射。"
+            ),
+            "try_this": (
+                "每天3道小数加减加3道分数约分。关键不是做完，是做完以后让孩子自己批改："
+                "拿红笔标出哪个位置错了、为什么错。他自己发现了，下次才记得住。"
+            ),
+        },
+        "math_calc_multistep_break": {
+            "problem_name": "多步计算容易断掉",
+            "why_happens": (
+                "这不是孩子脑子不够用，是工作记忆还没练出来。多步计算需要同时记住中间结果和下一步操作，"
+                "五年级的孩子大脑还在发育，这个能力有个体差异。"
+            ),
+            "try_this": (
+                "把一张草稿纸折成小格子，每格只做一步，做完一格划一道线。"
+                "这样孩子不用靠脑子记中间结果，眼睛一看就知道上一步算的是什么。"
+            ),
+        },
+        "math_concept_recite_only": {
+            "problem_name": "公式会背但不太理解",
+            "try_this": (
+                "让孩子用'自己的话'给你讲一遍这个概念是什么意思，不许用课本上的词。"
+                "比如'分数就是披萨切了几块，拿了几块'——能用人话说出来，才是真懂了。"
+            ),
+        },
+        "math_concept_confuse": {
+            "problem_name": "容易混淆相似概念",
+            "try_this": (
+                "拿两张纸，左边写概念A，右边写概念B，中间写'哪里一样''哪里不一样'。"
+                "自己画出来的对比表，比看十遍课本都管用。"
+            ),
+        },
+        "_default": {
+            "problem_name": "某个具体环节需要加强",
+            "try_this": (
+                "先不要急着加量，先把卡住的那一步单独揪出来，每天只练这一步，练稳了再往下走。"
+            ),
+        },
+    }
+
+    # ---- 因果链条库（口语版） ----
+    _CAUSAL_LINKS: dict[str, str] = {
+        ("parent_add_more_exercises", "probe_only_reads_answer"): (
+            "你是不是也这样：看孩子出错就让他多做几道？但孩子那边呢，主要是把答案看懂了就过了，"
+            "没有自己独立再做一遍。这样题是做了，但出错的那个点其实没练到——"
+            "就像投篮姿势不对，你让他投100个，姿势还是错的。"
+        ),
+        ("parent_add_more_exercises", "probe_cannot_name_breakpoint"): (
+            "你给孩子加了题量，但他其实说不清楚自己到底哪一步开始卡住的。"
+            "这就有点像车坏了但你不知道哪里坏了，就一直在路上开——开再多也修不好。"
+        ),
+        ("parent_explain_full_solution", "probe_only_reads_answer"): (
+            "你是不是习惯把整道题从头讲一遍？讲的时候孩子点头说明白了，"
+            "但那是你在想，不是他在想。他需要自己从卡住的那一步重新走一遍，而不是听你走一遍。"
+        ),
+        ("parent_explain_full_solution", "probe_cannot_name_breakpoint"): (
+            "你讲得很认真，但孩子说不出从哪一步开始不会的。"
+            "这说明他在'接收'你的思路，不是在'参与'思考。下次换道题，他还是找不到那个断点。"
+        ),
+        ("parent_ai_gives_answer", "probe_only_reads_answer"): (
+            "AI或大人很快给了答案，孩子看完觉得懂了——但这个'懂了'是假的。"
+            "没有自己重新做一遍，明天遇到差不多的题照样错。这不是孩子的问题，是这个方式本身就容易造成假懂。"
+        ),
+        ("parent_add_more_exercises", "probe_ai_answer_first"): (
+            "加题量加上较快给答案——两个加在一起，孩子其实没有经历过'自己死磕'的过程。"
+            "而真正学会，往往就发生在他自己憋了半天终于想通的那一刻。"
+        ),
+        "_default_parent_strategy": (
+            "你现在帮孩子的方式，和孩子真正卡住的那个点，可能有一点错位。"
+            "调整一下方向，效果会明显不一样。"
+        ),
+    }
+
+    # ---- 引流钩子库 ----
+    _HOOKS: dict[str, str] = {
+        "math": (
+            "对了，刚才我们聊的主要是数学计算这一块。但其实计算背后有时候还藏着更早的问题——"
+            "比如三年级的分数学扎实了吗？乘法口诀是不是到多位数就慢了？"
+            "如果想，你可以跟我说说孩子其他科或更早的情况，我帮你看看还有没有别的隐患。"
+        ),
+        "physics": (
+            "物理这一科比较特殊，很多孩子的卡点其实不在物理本身，而在数学工具没跟上。"
+            "如果你想，可以跟我说说孩子数学学到什么程度了，我帮你看看是不是数学基础拖了物理的后腿。"
+        ),
+        "chemistry": (
+            "化学刚开始学的时候，很多孩子是被符号和方程式吓住的，不一定真的不会。"
+            "如果你想，可以跟我说说孩子是几年级开始学化学的、用的什么教材，我帮你判断一下是不是衔接问题。"
+        ),
+        "_default": (
+            "每个孩子的卡点细节都不一样，刚才说的只是一个大方向。"
+            "如果你愿意多聊几句——比如孩子最近一次考试卷子长什么样、哪道题错得最让你想不通——"
+            "我可以帮你定位得更准，告诉你接下来具体怎么做。"
+        ),
+    }
+
     def _compose_fallback_result(self, session: ConversationSession) -> dict[str, Any]:
         scores = accumulate_scores(session.fallback_subject, session.fallback_option_ids)
         if not scores:
@@ -638,29 +987,95 @@ class ConversationAgent:
         sorted_scores = sorted(scores.items(), key=lambda item: item[1], reverse=True)
         primary = sorted_scores[0][0]
         secondary = [factor for factor, _ in sorted_scores[1:3]]
-        action = FACTOR_ACTIONS[primary]
+        option_ids = session.fallback_option_ids
+        option_set = set(option_ids)
 
+        # ---- 个性化建议 ----
+        primary_label = FACTOR_PUBLIC_LABELS[primary]
+        primary_action = FACTOR_ACTIONS[primary]
+
+        personal = self._PERSONALIZED_ADVICE.get("_default")
+        for oid in option_ids:
+            if oid in self._PERSONALIZED_ADVICE:
+                personal = self._PERSONALIZED_ADVICE[oid]
+                break
+
+        problem_name = personal.get("problem_name", "某个环节需要加强")
+        why_happens = personal.get("why_happens", "")
+        try_this = personal.get("try_this", primary_action["start"])
+
+        # ---- 因果链 ----
+        causal = self._build_causal_chain(option_set)
+
+        # ---- 证据 ----
         evidence = [
-            OPTION_PUBLIC_LABELS.get(option_id, option_id)
-            for option_id in session.fallback_option_ids
-            if option_id in OPTION_PUBLIC_LABELS
+            OPTION_PUBLIC_LABELS.get(oid, oid)
+            for oid in option_ids
+            if oid in OPTION_PUBLIC_LABELS
         ]
         if not evidence:
-            evidence = ["当前主要依据来自家长自然描述，证据还偏少。"]
+            evidence = ["根据你描述的情况"]
 
-        primary_label = FACTOR_PUBLIC_LABELS[primary]
+        # ---- 钩子 ----
+        subject_key = session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else "_default"
+        hook = self._HOOKS.get(subject_key, self._HOOKS["_default"])
+
+        # ---- 构建 public_summary（口语版） ----
+        evidence_line = "从你刚才说的情况来看"
+        secondary_labels = [FACTOR_PUBLIC_LABELS[f] for f in secondary if f in FACTOR_PUBLIC_LABELS]
+
+        parts = [
+            f"{evidence_line}，孩子现在最突出的问题是「{problem_name}」。",
+        ]
+        if why_happens:
+            parts.append(why_happens)
+        parts.append(causal)
+        parts.append(f"你可以先试一个小动作：{try_this}")
+        parts.append("")
+        parts.append(hook)
+
+        public_summary = "\n\n".join(parts)
+
         return {
             "subject": session.fallback_subject.value,
             "primary_factor": primary_label,
-            "primary_desc": f"目前线索最集中在「{primary_label}」。这个判断来自最近一次卡住事件，需要后续结合具体题目继续校准。",
-            "secondary_factors": [FACTOR_PUBLIC_LABELS[factor] for factor in secondary],
+            "primary_desc": f"主要是「{problem_name}」——{why_happens}" if why_happens else f"主要是「{problem_name}」。",
+            "secondary_factors": secondary_labels,
             "evidence": evidence[:6],
-            "missing_information": [] if len(evidence) >= 3 else ["还缺孩子自己的说法或一道具体错题。"],
-            "parent_common_mistake": action["mistake"],
-            "next_7_days_stop": action["stop"],
-            "next_7_days_start": action["start"],
-            "public_summary": (
-                f"目前更像是「{primary_label}」在优先影响这次理科学习。"
-                f"先不要把问题扩大成孩子不努力，未来 7 天只观察一个小动作：{action['start']}"
-            ),
+            "missing_information": [] if len(evidence) >= 3 else ["如果能再具体说说孩子最近一次考试的情况，我可以判断得更准。"],
+            "parent_common_mistake": primary_action["mistake"],
+            "next_7_days_stop": primary_action["stop"],
+            "next_7_days_start": try_this,
+            "public_summary": public_summary,
+            "hook": hook,
         }
+
+    def _build_causal_chain(self, option_set: set[str]) -> str:
+        """根据用户选项组合，生成因果推理链（口语版）。"""
+        parent_ids = {
+            "parent_add_more_exercises", "parent_explain_full_solution",
+            "parent_ai_gives_answer", "parent_review_then_retest",
+        }
+        review_ids = {
+            "probe_only_reads_answer", "probe_cannot_name_breakpoint",
+            "probe_ai_answer_first", "probe_template_ok_variant_fail",
+            "probe_emotion_blocks_start",
+        }
+        selected_parent = option_set.intersection(parent_ids)
+        selected_review = option_set.intersection(review_ids)
+
+        if selected_parent and selected_review:
+            for pid in selected_parent:
+                for rid in selected_review:
+                    key = (pid, rid)
+                    if key in self._CAUSAL_LINKS:
+                        return self._CAUSAL_LINKS[key]
+            return self._CAUSAL_LINKS.get(
+                "_default_parent_strategy",
+                "你现在帮孩子的方式，和孩子真正卡住的那个点，可能有一点错位。"
+            )
+
+        if selected_parent:
+            return "你帮孩子的心意肯定没问题，但也许可以换一种帮法，效果会更好。"
+
+        return "孩子在这个环节卡住其实挺常见的，关键是用对方法去练，而不是练更多。"
