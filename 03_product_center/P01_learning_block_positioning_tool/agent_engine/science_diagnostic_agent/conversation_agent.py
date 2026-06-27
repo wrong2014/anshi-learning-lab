@@ -252,6 +252,16 @@ class ConversationAgent:
             # 确保有 uncertainties
             if not llm_data.get("uncertainties"):
                 llm_data["uncertainties"] = ["需要看真实试卷才能进一步确认具体是哪一种错误模式。"]
+            # 确保有 diagnostic_upgrade
+            if not llm_data.get("diagnostic_upgrade"):
+                subject = session.fallback_subject.value if session.fallback_subject != Subject.UNKNOWN else "math"
+                sn = "数学" if subject == "math" else "物理"
+                llm_data["diagnostic_upgrade"] = (
+                    "刚才的对话，我们只是通过描述看到了水面上的冰山一角。"
+                    "看病不能光听家属描述，必须看最终的'化验单'——也就是孩子的真实演算卷面。"
+                    "把孩子最近的1-2张" + sn + "大考卷发过来，我会像做X光扫描一样，逐行拆解他的解题步骤，"
+                    "帮你出一份精准的漏洞定位与修复方案。找准了底层的那个漏洞，把逻辑重新顺一遍，比瞎做100道题都管用。"
+                )
             return AgentTurnResult(
                 messages=llm_result.messages, should_conclude=True,
                 result=llm_data, thinking=llm_result.thinking,
@@ -684,8 +694,11 @@ class ConversationAgent:
             + "\n".join("· " + u for u in uncertainties[:3]) +
             "\n\n今晚可以试一个小动作——" + vaction["title"] + "：\n" + vaction["steps"] + "\n\n"
             "注意：在做这个验证时，你大概率会发现孩子根本说不出第一处跑偏在哪里，或者解释不清最基础的那个概念。"
-            "不要生气，这非常正常。这说明他的" + subject_name + "基础架构已经有了断层，单靠盯着一道错题是找不到真正断点的。\n\n"
-            "刚才的对话，我们只是通过描述看到了水面上的冰山一角。但孩子大脑里到底哪一段逻辑链路跑错了？"
+            "不要生气，这非常正常。这说明他的" + subject_name + "基础架构已经有了断层，单靠盯着一道错题是找不到真正断点的。"
+        )
+
+        diagnostic_upgrade = (
+            "刚才的对话，我们只是通过描述看到了水面上的冰山一角。"
             "看病不能光听家属描述，必须看最终的'化验单'——也就是孩子的真实演算卷面。"
             "把孩子最近的1-2张" + subject_name + "大考卷发过来，我会像做X光扫描一样，逐行拆解他的解题步骤，"
             "帮你出一份精准的漏洞定位与修复方案。找准了底层的那个漏洞，把逻辑重新顺一遍，比瞎做100道题都管用。"
@@ -706,6 +719,7 @@ class ConversationAgent:
             "parent_common_mistake": "把表面现象简单归为粗心或态度问题。",
             "next_7_days_stop": "先不要急着加题量或反复讲答案。",
             "public_summary": public_summary,
+            "diagnostic_upgrade": diagnostic_upgrade,
         }
 
 
