@@ -72,6 +72,7 @@ export default function ChatContainer({ sessionToLoad = null, onSessionStarted }
   const [isComplete, setIsComplete] = useState(false);
   const [isReadOnlyHistory, setIsReadOnlyHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -221,6 +222,14 @@ export default function ChatContainer({ sessionToLoad = null, onSessionStarted }
     await sendToAgent({ ui_block_id: activeBlock?.id, free_text: text.trim() });
   };
 
+  const handlePromptStarter = (text: string) => {
+    if (isLoading || isComplete || isReadOnlyHistory) return;
+    setInputValue(text);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  };
+
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -258,6 +267,7 @@ export default function ChatContainer({ sessionToLoad = null, onSessionStarted }
             onOptionSelect={handleOptionSelect}
             onMultiSelect={handleMultiSelect}
             onFreeText={handleCardFreeText}
+            onPromptStarter={handlePromptStarter}
             isLatestAgentMsg={!isReadOnlyHistory && index === lastAgentBlockIdx}
           />
         ))}
@@ -272,6 +282,7 @@ export default function ChatContainer({ sessionToLoad = null, onSessionStarted }
       <div className={styles.inputArea}>
         <div className={styles.inputWrapper}>
           <input
+            ref={inputRef}
             type="text"
             className={styles.input}
             placeholder={placeholder}

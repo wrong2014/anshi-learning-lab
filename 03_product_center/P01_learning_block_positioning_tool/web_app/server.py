@@ -22,6 +22,10 @@ from science_diagnostic_agent import (  # noqa: E402
     LLMAdapter,
     load_provider_registry,
 )
+from science_diagnostic_agent.result_catalog import (  # noqa: E402
+    build_result_preview,
+    list_result_catalog,
+)
 
 
 registry = load_provider_registry(ENGINE_ROOT / ".env")
@@ -238,10 +242,28 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(status.model_dump(mode="json"))
             return
 
+        if parsed.path == "/api/result-branches":
+            self.send_json(list_result_catalog())
+            return
+
         self.send_error(404)
 
     def do_POST(self):
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/result-preview":
+            try:
+                payload = self.read_json()
+                result = build_result_preview(
+                    subject_value=str(payload.get("subject") or "math"),
+                    category_value=str(payload.get("category") or "C_modeling_and_transfer"),
+                    amplifier_value=payload.get("amplifier") or None,
+                    grade_label=str(payload.get("grade_label") or "初二"),
+                )
+                self.send_json({"result": result})
+            except (TypeError, ValueError) as exc:
+                self.send_json({"error": str(exc)}, status=400)
+            return
 
         if parsed.path == "/api/answer":
             try:

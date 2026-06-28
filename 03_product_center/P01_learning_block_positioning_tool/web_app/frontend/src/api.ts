@@ -3,6 +3,8 @@ import type {
   APIAnswerResponse,
   APIStartResponse,
   ProviderStatus,
+  ResultBranchCatalog,
+  ResultData,
   StoredSessionDetail,
   StoredSessionSummary,
 } from './types';
@@ -50,4 +52,30 @@ export async function getProviderStatus(): Promise<ProviderStatus> {
     throw new Error(`Failed to load provider status: ${res.status}`);
   }
   return res.json();
+}
+
+export async function getResultBranches(): Promise<ResultBranchCatalog> {
+  const res = await fetch('/api/result-branches');
+  if (!res.ok) {
+    throw new Error(`Failed to load result branches: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getResultPreview(request: {
+  subject: string;
+  category: string;
+  amplifier?: string;
+  grade_label?: string;
+}): Promise<ResultData> {
+  const res = await fetch('/api/result-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to load result preview: ${res.status}`);
+  }
+  const data = await res.json();
+  return data.result;
 }

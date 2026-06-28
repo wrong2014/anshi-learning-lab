@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, History, MessageSquare, RefreshCw, Settings } from 'lucide-react';
+import { Bot, History, MessageSquare, PanelsTopLeft, RefreshCw, Settings } from 'lucide-react';
 import clsx from 'clsx';
 import styles from './App.module.css';
 import ChatContainer from './components/ChatContainer';
+import ResultBranchManager from './components/ResultBranchManager';
 import { getProviderStatus, listSessions } from './api';
 import type { ProviderStatus, StoredSessionSummary } from './types';
 
-type ViewMode = 'chat' | 'history' | 'settings';
+type ViewMode = 'chat' | 'history' | 'preview' | 'settings';
 
 function formatTime(value: string) {
   if (!value) return '';
@@ -67,6 +68,11 @@ function App() {
     setViewMode('settings');
     setActiveHistorySessionId(null);
     void refreshStatus();
+  };
+
+  const handleOpenPreview = () => {
+    setViewMode('preview');
+    setActiveHistorySessionId(null);
   };
 
   const handleSessionStarted = useCallback(() => {
@@ -164,6 +170,20 @@ function App() {
       );
     }
 
+    if (viewMode === 'preview') {
+      return (
+        <section className={styles.panelPage}>
+          <div className={styles.panelHeader}>
+            <div>
+              <h2>结果分支</h2>
+              <p>统一查看三科学科与五类卡点的最终报告，并按分支保存反馈备注。</p>
+            </div>
+          </div>
+          <ResultBranchManager />
+        </section>
+      );
+    }
+
     return (
       <ChatContainer
         key={activeHistorySessionId || chatKey}
@@ -202,6 +222,14 @@ function App() {
           </button>
           <button
             type="button"
+            className={clsx(styles.navItem, viewMode === 'preview' && styles.active)}
+            onClick={handleOpenPreview}
+          >
+            <PanelsTopLeft size={18} />
+            <span>结果预览</span>
+          </button>
+          <button
+            type="button"
             className={clsx(styles.navItem, viewMode === 'settings' && styles.active)}
             onClick={handleOpenSettings}
           >
@@ -229,6 +257,14 @@ function App() {
         >
           <History size={18} />
           <span>历史</span>
+        </button>
+        <button
+          type="button"
+          className={clsx(styles.mobileNavItem, viewMode === 'preview' && styles.active)}
+          onClick={handleOpenPreview}
+        >
+          <PanelsTopLeft size={18} />
+          <span>预览</span>
         </button>
         <button
           type="button"

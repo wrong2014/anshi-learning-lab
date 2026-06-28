@@ -5,22 +5,39 @@ import styles from './MessageBubble.module.css';
 import type { Message } from '../types';
 import SingleChoiceCard from './GenerativeUI/SingleChoiceCard';
 import ResultCard from './GenerativeUI/ResultCard';
+import OpeningPrompt from './GenerativeUI/OpeningPrompt';
 
 interface Props {
   message: Message;
   onOptionSelect?: (blockId: string, optionId: string, optionLabel: string) => void;
   onMultiSelect?: (blockId: string, optionIds: string[], optionLabels: string[]) => void;
   onFreeText?: (text: string) => void;
+  onPromptStarter?: (text: string) => void;
   isLatestAgentMsg?: boolean;
 }
 
-export default function MessageBubble({ message, onOptionSelect, onMultiSelect, onFreeText, isLatestAgentMsg }: Props) {
+export default function MessageBubble({
+  message,
+  onOptionSelect,
+  onMultiSelect,
+  onFreeText,
+  onPromptStarter,
+  isLatestAgentMsg,
+}: Props) {
   const isUser = message.role === 'user';
 
   const renderUIBlock = () => {
     if (!message.uiBlock) return null;
 
     switch (message.uiBlock.type) {
+      case 'opening_prompt':
+        return (
+          <OpeningPrompt
+            block={message.uiBlock}
+            onStarter={(text) => onPromptStarter?.(text)}
+            disabled={!isLatestAgentMsg}
+          />
+        );
       case 'single_choice':
       case 'multi_choice':
         return (

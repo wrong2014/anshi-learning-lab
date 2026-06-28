@@ -13,7 +13,6 @@ from typing import Any
 from uuid import uuid4
 
 from .factor_rules import (
-    FACTOR_ACTIONS,
     OPTION_PUBLIC_LABELS,
     OPTION_WEIGHTS,
     accumulate_amplifier_scores,
@@ -25,10 +24,8 @@ from .factor_rules import (
 )
 from .llm_providers import LLMAdapter
 from .models import (
-    AMPLIFIER_LABELS,
     CATEGORY_LABELS,
     FACTOR_TO_CATEGORY,
-    AmplifierCode,
     DiagnosticCategory,
     FactorCode,
     Subject,
@@ -39,7 +36,7 @@ from .question_bank import (
     category_detail_question,
     context_amplifier_question,
 )
-from .verification_actions import get_verification_action
+from .result_catalog import CATEGORY_DESCRIPTIONS, SUBJECT_LABELS, build_result_payload
 
 
 @dataclass
@@ -82,13 +79,6 @@ class ConversationAgent:
 
     MAX_TURNS = 6
 
-    _SUBJECT_LABELS = {
-        Subject.MATH: "数学",
-        Subject.PHYSICS: "物理",
-        Subject.CHEMISTRY: "化学",
-        Subject.UNKNOWN: "理科",
-    }
-
     _DEFAULT_CATEGORY_ORDER = {
         Subject.MATH: [
             DiagnosticCategory.C_MODELING,
@@ -114,14 +104,6 @@ class ConversationAgent:
         Subject.UNKNOWN: list(DiagnosticCategory),
     }
 
-    _CATEGORY_DESCRIPTIONS = {
-        DiagnosticCategory.A_FOUNDATION: "眼前这道题只是表面，真正需要先确认的是旧知识、概念含义或错误理解从哪里断开。",
-        DiagnosticCategory.B_REPRESENTATION: "孩子可能看见了题目，却没有把文字、符号、图形和条件稳定地转成可用的解题信息。",
-        DiagnosticCategory.C_MODELING: "孩子并非完全听不懂，而是还不能独立把情境中的关系搭起来，所以题目一变就容易失去入口。",
-        DiagnosticCategory.D_EXECUTION: "思路可能已经出现，但步骤、计算、单位或多条件处理还没有形成稳定流程。",
-        DiagnosticCategory.E_SELF_REGULATION: "卡住之后的定位、复盘和情绪恢复没有形成闭环，导致当时看懂了也难以变成下一次会做。",
-    }
-
     def __init__(self, adapter: LLMAdapter):
         self.adapter = adapter
 
@@ -130,9 +112,32 @@ class ConversationAgent:
         return session, AgentTurnResult(
             messages=[AgentMessage(
                 text=(
-                    "你好，我先听你说。最近孩子在数学、物理或化学里，"
-                    "哪一件事最让你担心？像发微信一样说就行，不用先判断是粗心还是态度问题。"
-                )
+                    "你好。能走到这里，你多半已经为孩子试过不少办法，也可能越帮越着急。"
+                    "先不用证明谁对谁错，我们只看最近一次，我陪你把乱成一团的感觉慢慢理清。"
+                ),
+                ui_block={
+                    "type": "opening_prompt",
+                    "id": "opening_story_prompt",
+                    "title": "从最近一次让你心里一沉的时刻说起",
+                    "body": "不用讲完整，也不用先判断原因。想到哪里，就从哪里开始。",
+                    "starters": [
+                        {
+                            "id": "opening_paper",
+                            "label": "一张卷子",
+                            "text": "最近一张让我担心的卷子是……",
+                        },
+                        {
+                            "id": "opening_repeated_error",
+                            "label": "一道总错的题",
+                            "text": "有一类题孩子明明学过，却总是……",
+                        },
+                        {
+                            "id": "opening_help_conflict",
+                            "label": "一次辅导冲突",
+                            "text": "最近一次我试着帮他，结果反而……",
+                        },
+                    ],
+                },
             )]
         )
 
@@ -350,57 +355,27 @@ class ConversationAgent:
         if amplifier and amplifier_scores[amplifier] < 2:
             amplifier = None
 
-        action = FACTOR_ACTIONS[primary_factor]
-        verification = get_verification_action(category, session.fallback_subject)
         evidence = self._public_evidence(session)
         confidence = self._confidence(session, category)
         uncertainties = self._uncertainties(session, confidence)
-        subject_label = self._SUBJECT_LABELS[session.fallback_subject]
         grade_label = self._grade_label(session.grade_level)
-        category_label = CATEGORY_LABELS[category]
-        amplifier_label = AMPLIFIER_LABELS.get(amplifier, "") if amplifier else ""
-
-        summary = (
-            f"目前更像是「{category_label}」在优先影响这次{subject_label}学习。"
-            f"{self._CATEGORY_DESCRIPTIONS[category]}"
+        result = build_result_payload(
+            subject=session.fallback_subject,
+            grade_label=grade_label,
+            category=category,
+            primary_factor=primary_factor,
+            amplifier=amplifier,
+            evidence=evidence,
+            uncertainties=uncertainties,
+            confidence=confidence,
         )
-        if amplifier_label:
-            summary += f" 同时，{amplifier_label}，所以同一个问题可能会反复出现。"
-        summary += " 这只是基于对话的初步定位，今晚的小验证会比继续刷题更有信息量。"
-
-        result: dict[str, Any] = {
-            "subject": session.fallback_subject.value,
-            "subject_label": subject_label,
-            "grade_label": grade_label,
-            "confidence": confidence,
-            "primary_category": category.value,
-            "primary_category_label": category_label,
-            "primary_factor": category_label,
-            "primary_desc": self._CATEGORY_DESCRIPTIONS[category],
-            "secondary_factors": [],
-            "amplifier": amplifier.value if amplifier else None,
-            "amplifier_label": amplifier_label or None,
-            "evidence": evidence,
-            "uncertainties": uncertainties,
-            "missing_information": uncertainties,
-            "verification_action": verification,
-            "parent_common_mistake": action["mistake"],
-            "next_7_days_stop": action["stop"],
-            "next_7_days_start": action["start"],
-            "public_summary": summary,
-            "diagnostic_upgrade": (
-                f"这次对话已经把范围缩到「{category_label}」。如果要确认它在什么题型、"
-                f"哪一步反复出现，下一步应核对孩子最近 1-2 张{subject_label}试卷和真实演算过程。"
-                "重点不是再看一次分数，而是比较多张卷子里重复出现的第一处断点。"
-            ),
-        }
 
         polished = self.adapter.polish_result({
-            "subject": subject_label,
+            "subject": SUBJECT_LABELS[session.fallback_subject],
             "grade": grade_label,
-            "category": category_label,
-            "description": self._CATEGORY_DESCRIPTIONS[category],
-            "amplifier": amplifier_label or None,
+            "category": CATEGORY_LABELS[category],
+            "description": CATEGORY_DESCRIPTIONS[category],
+            "amplifier": result["amplifier_label"],
             "evidence": evidence[:3],
             "uncertainties": uncertainties[:2],
         })

@@ -1,7 +1,7 @@
 // ===== API 响应类型 =====
 
 export interface UIBlock {
-  type: string; // 'single_choice' | 'multi_choice' | 'short_text'
+  type: string; // 'opening_prompt' | 'single_choice' | 'multi_choice' | 'short_text'
   id: string;
   title?: string;
   body?: string;
@@ -12,6 +12,11 @@ export interface UIBlock {
   free_text_placeholder?: string;
   min_select?: number;
   max_select?: number;
+  starters?: {
+    id: string;
+    label: string;
+    text: string;
+  }[];
 }
 
 export interface AgentMessageData {
@@ -20,6 +25,8 @@ export interface AgentMessageData {
 }
 
 export interface ResultData {
+  branch_id?: string;
+  catalog_version?: string;
   subject?: string;
   subject_label?: string;
   grade_label?: string;
@@ -109,4 +116,27 @@ export interface ProviderStatus {
   deepseek_model?: string | null;
   doubao_text_model?: string | null;
   mode: string;
+}
+
+export interface ResultCatalogOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface ResultBranchSummary {
+  id: string;
+  subject: string;
+  subject_label: string;
+  category: string;
+  category_label: string;
+  verification_title: string;
+}
+
+export interface ResultBranchCatalog {
+  version: string;
+  subjects: ResultCatalogOption[];
+  categories: ResultCatalogOption[];
+  amplifiers: ResultCatalogOption[];
+  branches: ResultBranchSummary[];
 }

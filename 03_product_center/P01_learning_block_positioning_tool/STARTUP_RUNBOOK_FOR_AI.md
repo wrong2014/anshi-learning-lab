@@ -336,6 +336,21 @@ ConversationAgent
 JSONL 会话日志 web_app/data/sessions
 ```
 
+结果分支维护入口：
+
+```text
+结果文案、分支编号、预览样例
+  agent_engine/science_diagnostic_agent/result_catalog.py
+
+三科 5 分钟验证动作
+  agent_engine/science_diagnostic_agent/verification_actions.py
+
+浏览器预览
+  http://localhost:5173 → 结果预览
+```
+
+结果目录当前包含 `3 科 × 5 类卡点 = 15` 个基础分支。真实对话和预览页共用 `build_result_payload`，修改后必须运行诊断行为回归测试，并在“结果预览”中检查对应分支。
+
 核心文件：
 
 ```text
