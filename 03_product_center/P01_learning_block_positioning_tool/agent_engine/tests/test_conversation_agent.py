@@ -77,13 +77,27 @@ def complete_flow(
 
 
 class ConversationAgentTests(unittest.TestCase):
-    def test_opening_uses_non_submitting_prompt_starters(self):
-        _, result = ConversationAgent(OfflineAdapter()).start_session()
+    def test_opening_selects_subject_before_story_starters(self):
+        agent = ConversationAgent(OfflineAdapter())
+        session, result = agent.start_session()
 
-        block = result.messages[0].ui_block
-        self.assertEqual(block["type"], "opening_prompt")
-        self.assertEqual(len(block["starters"]), 3)
-        self.assertTrue(all(item["text"] for item in block["starters"]))
+        subject_block = result.messages[0].ui_block
+        self.assertEqual(subject_block["type"], "subject_picker")
+        self.assertEqual(
+            [item["id"] for item in subject_block["options"]],
+            ["subject_math", "subject_physics", "subject_chemistry"],
+        )
+
+        story_result = agent.process_user_input(
+            session,
+            selected_option_ids=["subject_math"],
+            selected_labels=["数学"],
+            ui_block_id="opening_subject",
+        )
+        story_block = story_result.messages[0].ui_block
+        self.assertEqual(story_block["type"], "opening_prompt")
+        self.assertEqual(len(story_block["starters"]), 3)
+        self.assertTrue(all("数学" in item["text"] for item in story_block["starters"]))
 
     def test_math_modeling_flow_keeps_exam_context_as_amplifier(self):
         _, result = complete_flow(

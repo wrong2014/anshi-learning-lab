@@ -109,32 +109,34 @@ class ConversationAgent:
 
     def start_session(self) -> tuple[ConversationSession, AgentTurnResult]:
         session = ConversationSession()
+        session.pending_ui_block_id = "opening_subject"
+        session.pending_ui_block_type = "subject_picker"
         return session, AgentTurnResult(
             messages=[AgentMessage(
                 text=(
-                    "你好。能走到这里，你多半已经为孩子试过不少办法，也可能越帮越着急。"
-                    "先不用证明谁对谁错，我们只看最近一次，我陪你把乱成一团的感觉慢慢理清。"
+                    "我们先不急着谈成绩，也不用一次把所有问题说完。"
+                    "先选今天最想看清的一科，后面我只围绕这一科陪你往下理。"
                 ),
                 ui_block={
-                    "type": "opening_prompt",
-                    "id": "opening_story_prompt",
-                    "title": "从最近一次让你心里一沉的时刻说起",
-                    "body": "不用讲完整，也不用先判断原因。想到哪里，就从哪里开始。",
-                    "starters": [
+                    "type": "subject_picker",
+                    "id": "opening_subject",
+                    "title": "今天先看哪一科？",
+                    "body": "一次只看一科，判断会更准。",
+                    "options": [
                         {
-                            "id": "opening_paper",
-                            "label": "一张卷子",
-                            "text": "最近一张让我担心的卷子是……",
+                            "id": "subject_math",
+                            "label": "数学",
+                            "hint": "计算、几何、函数、应用题",
                         },
                         {
-                            "id": "opening_repeated_error",
-                            "label": "一道总错的题",
-                            "text": "有一类题孩子明明学过，却总是……",
+                            "id": "subject_physics",
+                            "label": "物理",
+                            "hint": "概念、公式、实验、综合题",
                         },
                         {
-                            "id": "opening_help_conflict",
-                            "label": "一次辅导冲突",
-                            "text": "最近一次我试着帮他，结果反而……",
+                            "id": "subject_chemistry",
+                            "label": "化学",
+                            "hint": "概念、方程式、实验、计算",
                         },
                     ],
                 },
@@ -270,6 +272,17 @@ class ConversationAgent:
                 },
             )
 
+        if not session.free_text_evidence and "opening_story_prompt" not in session.fallback_asked_block_ids:
+            subject_label = SUBJECT_LABELS[session.fallback_subject]
+            return self._question(
+                session,
+                text=(
+                    f"好，我们先只看{subject_label}。这一步不是给孩子下结论，"
+                    "只是先把你最担心的那一件事接住。你不用说得专业，从最近一次开始就好。"
+                ),
+                ui_block=self._story_prompt_for_subject(session.fallback_subject),
+            )
+
         if not self._has_core_evidence(session) and "diagnostic_more_detail" not in session.fallback_asked_block_ids:
             return self._question(
                 session,
@@ -297,6 +310,33 @@ class ConversationAgent:
             text=self._paraphrase_and_narrow(session, categories),
             ui_block=block,
         )
+
+    @staticmethod
+    def _story_prompt_for_subject(subject: Subject) -> dict[str, Any]:
+        subject_label = SUBJECT_LABELS[subject]
+        return {
+            "type": "opening_prompt",
+            "id": "opening_story_prompt",
+            "title": "从最近一次让你心里一沉的时刻说起",
+            "body": f"不用先判断原因，只说最近一次{subject_label}里发生了什么。",
+            "starters": [
+                {
+                    "id": "opening_paper",
+                    "label": f"一张{subject_label}卷子",
+                    "text": f"最近一张让我担心的{subject_label}卷子是……",
+                },
+                {
+                    "id": "opening_repeated_error",
+                    "label": f"一道总错的{subject_label}题",
+                    "text": f"有一类{subject_label}题孩子明明学过，却总是……",
+                },
+                {
+                    "id": "opening_help_conflict",
+                    "label": f"一次{subject_label}辅导",
+                    "text": f"最近一次我陪他弄{subject_label}，结果反而……",
+                },
+            ],
+        }
 
     def _handle_candidate_answer(self, session: ConversationSession) -> AgentTurnResult:
         category = self._top_category(session)

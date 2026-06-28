@@ -242,11 +242,16 @@ export default function ChatContainer({ sessionToLoad = null, onSessionStarted }
     .filter((index) => index >= 0)
     .pop();
 
+  const activeUIBlock = getLatestUIBlock(messages);
+  const awaitingSubject = activeUIBlock?.type === 'subject_picker';
+
   const placeholder = isReadOnlyHistory
     ? '历史会话只读'
     : isComplete
       ? '本次定位已完成'
-      : '像发微信一样描述你的困惑...';
+      : awaitingSubject
+        ? '先选择今天要看的科目'
+        : '像发微信一样描述你的困惑...';
 
   return (
     <div className={styles.chatContainer}>
@@ -289,12 +294,12 @@ export default function ChatContainer({ sessionToLoad = null, onSessionStarted }
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
             onKeyDown={handleKeyPress}
-            disabled={isComplete || isLoading || isReadOnlyHistory}
+            disabled={isComplete || isLoading || isReadOnlyHistory || awaitingSubject}
           />
           <button
             className={styles.sendButton}
             onClick={handleSendText}
-            disabled={!inputValue.trim() || isComplete || isLoading || isReadOnlyHistory}
+            disabled={!inputValue.trim() || isComplete || isLoading || isReadOnlyHistory || awaitingSubject}
           >
             <Send size={18} />
           </button>

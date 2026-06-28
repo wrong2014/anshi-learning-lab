@@ -6,6 +6,7 @@ import type { Message } from '../types';
 import SingleChoiceCard from './GenerativeUI/SingleChoiceCard';
 import ResultCard from './GenerativeUI/ResultCard';
 import OpeningPrompt from './GenerativeUI/OpeningPrompt';
+import SubjectPicker from './GenerativeUI/SubjectPicker';
 
 interface Props {
   message: Message;
@@ -30,6 +31,16 @@ export default function MessageBubble({
     if (!message.uiBlock) return null;
 
     switch (message.uiBlock.type) {
+      case 'subject_picker':
+        return (
+          <SubjectPicker
+            block={message.uiBlock}
+            onSelect={(optionId, optionLabel) => {
+              onOptionSelect?.(message.uiBlock!.id, optionId, optionLabel);
+            }}
+            disabled={!isLatestAgentMsg}
+          />
+        );
       case 'opening_prompt':
         return (
           <OpeningPrompt

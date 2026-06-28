@@ -5,7 +5,7 @@ export interface UIBlock {
   id: string;
   title?: string;
   body?: string;
-  options?: { id: string; label: string }[];
+  options?: { id: string; label: string; hint?: string }[];
   allow_skip?: boolean;
   allow_free_text?: boolean;
   free_text_label?: string;
