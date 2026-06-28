@@ -35,6 +35,55 @@ class FactorCode(str, Enum):
     F12_MISCONCEPTION = "F12_misconception_naive_theory_interference"
 
 
+class DiagnosticCategory(str, Enum):
+    """Parent-facing summary layer; detailed factor scores stay internal."""
+
+    A_FOUNDATION = "A_foundation_and_concept"
+    B_REPRESENTATION = "B_language_and_representation"
+    C_MODELING = "C_modeling_and_transfer"
+    D_EXECUTION = "D_execution_and_cognitive_load"
+    E_SELF_REGULATION = "E_self_regulation_and_emotion"
+
+
+class AmplifierCode(str, Enum):
+    """Context that can amplify a learning bottleneck without replacing it."""
+
+    F_SUPPORT = "F_support_and_ai_mismatch"
+    G_EXAM_CONTEXT = "G_exam_context_and_pace"
+    H_RHYTHM = "H_sleep_and_learning_rhythm"
+
+
+CATEGORY_LABELS: dict[DiagnosticCategory, str] = {
+    DiagnosticCategory.A_FOUNDATION: "知识基础与概念建构",
+    DiagnosticCategory.B_REPRESENTATION: "题意理解与表征转换",
+    DiagnosticCategory.C_MODELING: "关系建模与迁移",
+    DiagnosticCategory.D_EXECUTION: "步骤执行与认知负荷",
+    DiagnosticCategory.E_SELF_REGULATION: "自主纠错与学习状态",
+}
+
+
+AMPLIFIER_LABELS: dict[AmplifierCode, str] = {
+    AmplifierCode.F_SUPPORT: "帮助方式可能跳过了孩子自己的思考",
+    AmplifierCode.G_EXAM_CONTEXT: "考试节奏会放大平时已有的卡点",
+    AmplifierCode.H_RHYTHM: "睡眠与学习节律可能让状态更不稳定",
+}
+
+
+FACTOR_TO_CATEGORY: dict[FactorCode, DiagnosticCategory] = {
+    FactorCode.F01_PRIOR_KNOWLEDGE: DiagnosticCategory.A_FOUNDATION,
+    FactorCode.F02_CONCEPT: DiagnosticCategory.A_FOUNDATION,
+    FactorCode.F12_MISCONCEPTION: DiagnosticCategory.A_FOUNDATION,
+    FactorCode.F03_LANGUAGE_SYMBOL: DiagnosticCategory.B_REPRESENTATION,
+    FactorCode.F04_REPRESENTATION: DiagnosticCategory.B_REPRESENTATION,
+    FactorCode.F05_MODEL_TRANSFER: DiagnosticCategory.C_MODELING,
+    FactorCode.F06_EXECUTION: DiagnosticCategory.D_EXECUTION,
+    FactorCode.F11_ATTENTION_EXECUTIVE: DiagnosticCategory.D_EXECUTION,
+    FactorCode.F07_METACOGNITION: DiagnosticCategory.E_SELF_REGULATION,
+    FactorCode.F08_STRATEGY: DiagnosticCategory.E_SELF_REGULATION,
+    FactorCode.F09_EMOTION: DiagnosticCategory.E_SELF_REGULATION,
+}
+
+
 class Confidence(str, Enum):
     LOW = "low"
     MEDIUM = "medium"

@@ -21,15 +21,29 @@ export interface AgentMessageData {
 
 export interface ResultData {
   subject?: string;
+  subject_label?: string;
+  grade_label?: string;
+  confidence?: 'low' | 'medium' | 'high' | string;
+  primary_category?: string;
+  primary_category_label?: string;
   primary_factor?: string;
   primary_desc?: string;
   secondary_factors?: string[];
+  amplifier?: string | null;
+  amplifier_label?: string | null;
   evidence?: string[];
+  uncertainties?: string[];
   missing_information?: string[];
+  verification_action?: {
+    title?: string;
+    steps?: string;
+    observe?: string;
+  };
   parent_common_mistake?: string;
   next_7_days_stop?: string;
   next_7_days_start?: string;
   public_summary?: string;
+  diagnostic_upgrade?: string;
 }
 
 export interface APIStartResponse {

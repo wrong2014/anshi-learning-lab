@@ -53,12 +53,18 @@ export default function MessageBubble({ message, onOptionSelect, onMultiSelect, 
   return (
     <div className={clsx(styles.bubbleContainer, isUser ? styles.userContainer : styles.agentContainer)}>
       {!isUser && (
-        <div className={clsx(styles.avatar, styles.agentAvatar)}>
+        <div className={clsx(styles.avatar, styles.agentAvatar, message.result && styles.resultAvatar)}>
           <Bot size={18} />
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '80%' }}>
+      <div
+        className={clsx(
+          styles.messageStack,
+          isUser && styles.userStack,
+          message.result && styles.resultStack,
+        )}
+      >
         {message.content && (
           <div className={clsx(styles.bubble, isUser ? styles.userBubble : styles.agentBubble)}>
             {message.content}

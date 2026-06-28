@@ -1,7 +1,7 @@
 """
 P01 理科学习卡点定位智能体 —— Web 服务
 
-使用 ConversationAgent（LLM 驱动）代替旧的 DiagnosticEngine（问卷状态机）。
+ConversationAgent 负责可复核的证据流；LLM 用于自由文本信号抽取和结果润色。
 """
 from __future__ import annotations
 
@@ -161,7 +161,7 @@ def reconstruct_session_messages(events: list[dict]) -> tuple[list[dict], bool]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "P01DiagnosticAgent/2.0"
+    server_version = "P01DiagnosticAgent/3.0"
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -172,6 +172,15 @@ class Handler(BaseHTTPRequestHandler):
 
             persist_event(session.session_id, "session_started", {
                 "session_id": session.session_id,
+            })
+            persist_event(session.session_id, "agent_response", {
+                "messages": [
+                    {"text": message.text, "ui_block": message.ui_block}
+                    for message in turn_result.messages
+                ],
+                "should_conclude": turn_result.should_conclude,
+                "thinking": turn_result.thinking,
+                "turn": 0,
             })
 
             response = {

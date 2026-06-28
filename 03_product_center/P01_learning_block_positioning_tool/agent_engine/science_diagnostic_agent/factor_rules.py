@@ -3,7 +3,13 @@ from __future__ import annotations
 from collections import defaultdict
 import re
 
-from .models import FactorCode, Subject
+from .models import (
+    AmplifierCode,
+    DiagnosticCategory,
+    FACTOR_TO_CATEGORY,
+    FactorCode,
+    Subject,
+)
 
 
 OPTION_WEIGHTS: dict[str, dict[FactorCode, float]] = {
@@ -70,6 +76,51 @@ OPTION_WEIGHTS: dict[str, dict[FactorCode, float]] = {
     "probe_emotion_blocks_start": {FactorCode.F09_EMOTION: 3},
     "probe_many_conditions_overload": {FactorCode.F11_ATTENTION_EXECUTIVE: 3},
     "probe_confident_but_wrong_rule": {FactorCode.F12_MISCONCEPTION: 3},
+    # Parent-facing category candidates. These only add evidence to the hidden factors.
+    "category_hint_foundation": {FactorCode.F02_CONCEPT: 3, FactorCode.F01_PRIOR_KNOWLEDGE: 2},
+    "category_hint_representation": {FactorCode.F03_LANGUAGE_SYMBOL: 2, FactorCode.F04_REPRESENTATION: 3},
+    "category_hint_modeling": {FactorCode.F05_MODEL_TRANSFER: 5},
+    "category_hint_execution": {FactorCode.F06_EXECUTION: 3, FactorCode.F11_ATTENTION_EXECUTIVE: 2},
+    "category_hint_self_regulation": {
+        FactorCode.F07_METACOGNITION: 2,
+        FactorCode.F08_STRATEGY: 2,
+        FactorCode.F09_EMOTION: 1,
+    },
+    # Category-specific discriminators.
+    "probe_foundation_old_knowledge": {FactorCode.F01_PRIOR_KNOWLEDGE: 3},
+    "probe_foundation_explain": {FactorCode.F02_CONCEPT: 3},
+    "probe_foundation_confident_wrong": {FactorCode.F12_MISCONCEPTION: 3},
+    "probe_representation_misread": {FactorCode.F03_LANGUAGE_SYMBOL: 3},
+    "probe_representation_convert": {FactorCode.F04_REPRESENTATION: 3},
+    "probe_representation_midway_loss": {
+        FactorCode.F04_REPRESENTATION: 1,
+        FactorCode.F11_ATTENTION_EXECUTIVE: 2,
+    },
+    "probe_modeling_cannot_start": {FactorCode.F05_MODEL_TRANSFER: 3},
+    "probe_modeling_variant": {FactorCode.F05_MODEL_TRANSFER: 3, FactorCode.F08_STRATEGY: 0.5},
+    "probe_modeling_method_boundary": {FactorCode.F05_MODEL_TRANSFER: 2, FactorCode.F02_CONCEPT: 0.5},
+    "probe_execution_repeated_detail": {FactorCode.F06_EXECUTION: 3},
+    "probe_execution_many_conditions": {FactorCode.F11_ATTENTION_EXECUTIVE: 3},
+    "probe_execution_exam_only": {FactorCode.F06_EXECUTION: 1, FactorCode.F11_ATTENTION_EXECUTIVE: 1},
+    "probe_regulation_no_breakpoint": {FactorCode.F07_METACOGNITION: 3},
+    "probe_regulation_answer_only": {FactorCode.F08_STRATEGY: 3},
+    "probe_regulation_avoidance": {FactorCode.F09_EMOTION: 3},
+}
+
+
+AMPLIFIER_WEIGHTS: dict[str, dict[AmplifierCode, float]] = {
+    "parent_explain_full_solution": {AmplifierCode.F_SUPPORT: 2},
+    "parent_ai_gives_answer": {AmplifierCode.F_SUPPORT: 2.5},
+    "probe_ai_answer_first": {AmplifierCode.F_SUPPORT: 2.5},
+    "probe_parent_takes_over": {AmplifierCode.F_SUPPORT: 2},
+    "context_support_takes_over": {AmplifierCode.F_SUPPORT: 3},
+    "context_exam_drop": {AmplifierCode.G_EXAM_CONTEXT: 3},
+    "context_time_pressure": {AmplifierCode.G_EXAM_CONTEXT: 3},
+    "context_late_paper_drop": {AmplifierCode.G_EXAM_CONTEXT: 2.5},
+    "probe_execution_exam_only": {AmplifierCode.G_EXAM_CONTEXT: 2},
+    "context_sleep_short": {AmplifierCode.H_RHYTHM: 3},
+    "context_fatigue": {AmplifierCode.H_RHYTHM: 2.5},
+    "context_irregular_rhythm": {AmplifierCode.H_RHYTHM: 2},
 }
 
 
@@ -225,13 +276,48 @@ OPTION_PUBLIC_LABELS: dict[str, str] = {
     "probe_emotion_blocks_start": "明显烦躁、紧张或直接逃开",
     "probe_many_conditions_overload": "条件一多就乱，容易丢条件或跳步骤",
     "probe_confident_but_wrong_rule": "孩子很有把握，但用的是错误规则或直觉",
+    "category_hint_foundation": "基础知识或概念本身没有真正讲清",
+    "category_hint_representation": "题目条件、符号或图形没有顺利转成解题信息",
+    "category_hint_modeling": "题意大致明白，但关系建不起来，题一变就不会",
+    "category_hint_execution": "思路可能有了，但步骤、计算或多条件处理中断",
+    "category_hint_self_regulation": "错后找不到断点，容易依赖答案或直接回避",
+    "probe_foundation_old_knowledge": "卡住的位置会牵出以前学过但已经不稳的知识",
+    "probe_foundation_explain": "会背定义或公式，但用自己的话解释不清",
+    "probe_foundation_confident_wrong": "孩子很确定自己的理解，但规则或因果方向本身错了",
+    "probe_representation_misread": "关键词、符号、单位或限制条件没有读准确",
+    "probe_representation_convert": "题意能复述，但转不成图、式子、方程式或过程关系",
+    "probe_representation_midway_loss": "条件开始时看到了，做到中间却丢了",
+    "probe_modeling_cannot_start": "知道题目在说什么，但找不到第一条关系",
+    "probe_modeling_variant": "例题同款会做，换情境或综合起来就不会",
+    "probe_modeling_method_boundary": "方法和公式都学过，但不知道此时该选哪一个",
+    "probe_execution_repeated_detail": "同一种符号、运算、单位或步骤错误反复出现",
+    "probe_execution_many_conditions": "简单步骤能做，条件或步骤一多就乱",
+    "probe_execution_exam_only": "平时大致会，一到考试或限时就明显失稳",
+    "probe_regulation_no_breakpoint": "错后说不清自己从哪一步开始偏了",
+    "probe_regulation_answer_only": "看答案时觉得懂了，但之后不能独立重做",
+    "probe_regulation_avoidance": "一遇到难题就明显烦躁、紧张或不愿继续",
+    "context_support_takes_over": "大人或 AI 很快接过思路并给出完整过程",
+    "context_exam_drop": "平时作业尚可，考试时错误明显增多",
+    "context_time_pressure": "时间总是不够，一道题卡住会拖累后面",
+    "context_late_paper_drop": "前半张卷较稳，越到后面越乱",
+    "context_sleep_short": "近期睡眠不足，白天容易困或反应慢",
+    "context_fatigue": "晚间学习时明显疲劳，状态波动大",
+    "context_irregular_rhythm": "作息和学习时段经常变化，很难保持稳定状态",
+    "context_none_obvious": "暂时没有明显的外部放大因素",
 }
 
 
-def accumulate_scores(subject: Subject, option_ids: list[str]) -> dict[FactorCode, float]:
+def accumulate_scores(
+    subject: Subject,
+    option_ids: list[str],
+    decay_prior: bool = True,
+) -> dict[FactorCode, float]:
     scores: dict[FactorCode, float] = defaultdict(float)
+    evidence_count = sum(1 for option_id in option_ids if OPTION_WEIGHTS.get(option_id))
+    prior_scale = max(0.0, 1.0 - 0.25 * evidence_count) if decay_prior else 1.0
+
     for factor, value in SUBJECT_PRIORS.get(subject, {}).items():
-        scores[factor] += value
+        scores[factor] += value * prior_scale
 
     for option_id in option_ids:
         for factor, value in OPTION_WEIGHTS.get(option_id, {}).items():
@@ -240,29 +326,77 @@ def accumulate_scores(subject: Subject, option_ids: list[str]) -> dict[FactorCod
     return dict(scores)
 
 
+def accumulate_category_scores(
+    subject: Subject,
+    option_ids: list[str],
+) -> dict[DiagnosticCategory, float]:
+    scores: dict[DiagnosticCategory, float] = defaultdict(float)
+    for factor, value in accumulate_scores(subject, option_ids).items():
+        category = FACTOR_TO_CATEGORY.get(factor)
+        if category:
+            scores[category] += max(0.0, value)
+    return dict(scores)
+
+
+def accumulate_amplifier_scores(option_ids: list[str]) -> dict[AmplifierCode, float]:
+    scores: dict[AmplifierCode, float] = defaultdict(float)
+    for option_id in option_ids:
+        for amplifier, value in AMPLIFIER_WEIGHTS.get(option_id, {}).items():
+            scores[amplifier] += value
+    return dict(scores)
+
+
+def ranked_categories(subject: Subject, option_ids: list[str]) -> list[DiagnosticCategory]:
+    scores = accumulate_category_scores(subject, option_ids)
+    return [item[0] for item in sorted(scores.items(), key=lambda item: item[1], reverse=True)]
+
+
+CORE_SIGNAL_OPTION_IDS = frozenset(OPTION_WEIGHTS)
+ALL_OPTION_IDS = frozenset(set(OPTION_WEIGHTS) | set(AMPLIFIER_WEIGHTS))
+
+
 TEXT_SIGNAL_PATTERNS: list[tuple[re.Pattern[str], list[str]]] = [
+    (re.compile(r"现象.*粒子.*方程式|宏观.*微观|粒子.*符号.*对不上|方程式.*现象.*对不上"), ["chem_symbol_equation_mismatch"]),
+    (re.compile(r"反应规律.*换|换.*物质.*不会|新物质.*不会"), ["chem_rule_cannot_transfer"]),
+    (re.compile(r"守恒.*不懂|化合价.*理解.*错|微粒.*理解.*错"), ["chem_conservation_or_valence_misconception"]),
+    (re.compile(r"不画.*受力图|不画.*电路图|不画.*过程图|直接.*套公式"), ["physics_no_diagram"]),
+    (re.compile(r"公式.*每个量|物理量.*意思|物理量.*说不清"), ["physics_formula_without_quantity_meaning"]),
+    (re.compile(r"概念.*不懂|概念.*不清|不理解|不知道.*意思|基础.*不牢|基础.*不稳|原理.*不懂|定义.*不清|公式.*意思|讲不清|解释不清|说不出来"), ["stuck_concept_formula"]),
     (re.compile(r"听懂|听得懂|课堂.*懂|课上.*懂"), ["concern_understand_but_cannot_solve"]),
-    (re.compile(r"不会做|做不出来|不会启动|无从下手|不知道.*开始"), ["stuck_select_method"]),
+    (re.compile(r"不会做|做不出来|不会启动|无从下手|不知道.*开始|不知道.*选|不知道.*用|选.*公式|选.*方法"), ["stuck_select_method"]),
     (re.compile(r"错题|反复错|总错|下次.*不会|看答案.*懂"), ["concern_repeated_wrong", "stuck_repeat_after_answer"]),
-    (re.compile(r"AI|豆包|DeepSeek|ChatGPT|答案"), ["concern_ai_answer_machine", "parent_ai_gives_answer"]),
+    (re.compile(r"AI|豆包|DeepSeek|ChatGPT|搜答案|查答案"), ["concern_ai_answer_machine", "parent_ai_gives_answer"]),
     (re.compile(r"我.*讲|直接讲|讲完整|完整解法"), ["parent_explain_full_solution"]),
     (re.compile(r"关系|建模|模型|公式.*选|选.*公式|方法.*选"), ["stuck_select_method"]),
     (re.compile(r"画图|受力图|过程图|电路图|列式|转化"), ["stuck_transform"]),
-    (re.compile(r"计算|单位|步骤|检查|粗心"), ["stuck_execution"]),
-    (re.compile(r"条件.*多|综合题.*乱|丢条件|漏条件|记不住|一下.*乱"), ["stuck_attention_overload", "probe_many_conditions_overload"]),
-    (re.compile(r"想当然|很有把握.*错|很笃定.*错|理解.*偏|概念.*错|直觉"), ["stuck_confident_wrong_idea", "probe_confident_but_wrong_rule"]),
+    (re.compile(r"计算|单位|步骤|检查|粗心|算错|算不对|小数点|约分|通分|移项|正负号"), ["stuck_execution"]),
+    (re.compile(r"应用题|综合题|大题|不会.*列|列.*式|列.*方程|换.*题|变.*题|换个.*就不会|换情境|生活题"), ["stuck_select_method", "math_same_template_ok_variant_fail"]),
+    (re.compile(r"条件.*多|综合题.*乱|丢条件|漏条件|记不住|一下.*乱|题目.*长|题干.*长"), ["stuck_attention_overload", "probe_many_conditions_overload"]),
+    (re.compile(r"想当然|很有把握.*错|很笃定.*错|理解.*偏|概念.*错|直觉|方向.*反"), ["stuck_confident_wrong_idea", "probe_confident_but_wrong_rule"]),
     (re.compile(r"方向|正负号|符号.*乱"), ["physics_direction_sign_confusion"]),
-    (re.compile(r"烦|急|崩|哭|逃|不想|抗拒|关系.*紧|吵"), ["concern_parent_help_gets_worse", "stuck_emotional_avoidance"]),
+    (re.compile(r"烦|急|崩|哭|逃|不想|抗拒|关系.*紧|吵|怕.*数学|怕.*物理|怕.*化学|讨厌|紧张|焦虑|没信心"), ["concern_parent_help_gets_worse", "stuck_emotional_avoidance"]),
+    (re.compile(r"读题|审题|看题|看错|漏看|看漏|没看到|没注意.*条件|没注意.*单位|题目.*没看清|题目.*理解错|题目.*读错"), ["stuck_read_problem"]),
+    (re.compile(r"平时.*会.*考试|平时.*对.*考试|一考试|考场|大考.*错"), ["context_exam_drop"]),
+    (re.compile(r"时间.*不够|来不及|做不完|卡住.*后面"), ["context_time_pressure"]),
+    (re.compile(r"前半.*还好|后半.*乱|越到后面.*错"), ["context_late_paper_drop"]),
+    (re.compile(r"睡眠不足|睡不够|熬夜|晚睡|困|睡得少"), ["context_sleep_short"]),
+    (re.compile(r"疲劳|疲惫|没精神|反应慢|晚上.*状态.*差"), ["context_fatigue"]),
 ]
 
 
 def infer_subject_from_text(text: str) -> Subject:
-    if re.search(r"数学|函数|几何|方程|代数|证明", text):
-        return Subject.MATH
-    if re.search(r"物理|受力|电路|力学|压强|浮力|运动|能量", text):
-        return Subject.PHYSICS
-    if re.search(r"化学|方程式|配平|离子|化合价|酸碱盐|实验", text):
+    if "化学" in text:
         return Subject.CHEMISTRY
+    if "物理" in text:
+        return Subject.PHYSICS
+    if "数学" in text:
+        return Subject.MATH
+    if re.search(r"配平|离子|化合价|酸碱盐|微粒|化学式|反应方程式", text):
+        return Subject.CHEMISTRY
+    if re.search(r"受力|电路|力学|压强|浮力|运动|能量", text):
+        return Subject.PHYSICS
+    if re.search(r"函数|几何|方程|代数|证明", text):
+        return Subject.MATH
     return Subject.UNKNOWN
 
 

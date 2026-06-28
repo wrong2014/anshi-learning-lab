@@ -103,3 +103,18 @@
   cursor: not-allowed;
   transform: none;
 }
+
+@media (max-width: 560px) {
+  .header {
+    padding: 16px 14px;
+  }
+
+  .messageList {
+    padding: 18px 12px;
+    gap: 18px;
+  }
+
+  .inputArea {
+    padding: 12px;
+  }
+}

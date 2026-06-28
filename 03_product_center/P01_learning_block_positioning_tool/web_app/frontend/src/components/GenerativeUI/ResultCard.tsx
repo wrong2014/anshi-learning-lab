@@ -1,5 +1,11 @@
-﻿
-import { Target, XCircle, CheckCircle2 } from 'lucide-react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  Search,
+  Target,
+  TimerReset,
+  XCircle,
+} from 'lucide-react';
 import styles from './ResultCard.module.css';
 import type { ResultData } from '../../types';
 
@@ -7,79 +13,127 @@ interface Props {
   data: ResultData;
 }
 
+const subjectLabels: Record<string, string> = {
+  math: '数学',
+  physics: '物理',
+  chemistry: '化学',
+  unknown: '理科',
+};
+
+const confidenceLabels: Record<string, string> = {
+  low: '线索较少',
+  medium: '方向较清楚',
+  high: '多条线索一致',
+};
+
 export default function ResultCard({ data }: Props) {
+  const subjectLabel = data.subject_label || subjectLabels[data.subject || ''] || data.subject || '理科';
+  const primaryLabel = data.primary_category_label || data.primary_factor || '还需要更多信息';
+  const uncertainties = data.uncertainties || data.missing_information || [];
+  const confidenceLabel = confidenceLabels[data.confidence || ''] || data.confidence;
+
   return (
-    <div className={styles.card}>
-      <div className={styles.header}>
-        <Target size={20} />
-        <span className={styles.headerTitle}>学习卡点定位报告 ({data.subject})</span>
-      </div>
-      
-      <div className={styles.content}>
-        {data.public_summary && (
-          <div className={styles.section} style={{marginBottom: '12px'}}>
-            <div style={{fontSize: '0.95rem', lineHeight: 1.6, color: 'var(--color-text-main)'}}>
-              {data.public_summary}
-            </div>
-          </div>
-        )}
-
-        <div className={styles.section}>
-          <span className={styles.sectionTitle}>当前最可能主因</span>
-          <div className={styles.primaryFactor}>
-            <div>{data.primary_factor}</div>
-            {data.primary_desc && (
-              <div style={{fontSize: '0.9rem', color: 'var(--color-text-main)', marginTop: '4px', fontWeight: 400}}>
-                {data.primary_desc}
-              </div>
-            )}
-          </div>
+    <article className={styles.card}>
+      <header className={styles.header}>
+        <div className={styles.headerIcon}>
+          <Target size={19} />
         </div>
+        <div className={styles.headerCopy}>
+          <span className={styles.eyebrow}>本次初步定位</span>
+          <h3 className={styles.headerTitle}>
+            {subjectLabel}{data.grade_label ? ` · ${data.grade_label}` : ''}
+          </h3>
+        </div>
+        {confidenceLabel && <span className={styles.confidence}>{confidenceLabel}</span>}
+      </header>
 
-        {data.secondary_factors && data.secondary_factors.length > 0 && (
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>次因及关联表现</span>
-            <div className={styles.tagList}>
-              {data.secondary_factors.map((factor, i) => (
-                <span key={i} className={styles.tag}>{factor}</span>
-              ))}
+      <div className={styles.content}>
+        {data.public_summary && <p className={styles.summary}>{data.public_summary}</p>}
+
+        <section className={styles.primarySection}>
+          <span className={styles.sectionTitle}>当前优先排查</span>
+          <strong className={styles.primaryTitle}>{primaryLabel}</strong>
+          {data.primary_desc && <p className={styles.primaryDescription}>{data.primary_desc}</p>}
+        </section>
+
+        {data.amplifier_label && (
+          <section className={styles.amplifierSection}>
+            <AlertCircle size={18} />
+            <div>
+              <span className={styles.inlineLabel}>同时留意</span>
+              <p>{data.amplifier_label}</p>
             </div>
-          </div>
+          </section>
         )}
 
         {data.evidence && data.evidence.length > 0 && (
-          <div className={styles.section}>
-            <span className={styles.sectionTitle}>关键证据</span>
-            <ul style={{margin: 0, paddingLeft: '20px', color: 'var(--color-text-main)', fontSize: '0.9rem'}}>
-              {data.evidence.map((ev, i) => (
-                <li key={i} style={{marginBottom: '4px'}}>{ev}</li>
+          <section className={styles.section}>
+            <span className={styles.sectionTitle}>为什么先看这个方向</span>
+            <ul className={styles.list}>
+              {data.evidence.slice(0, 4).map((evidence, index) => (
+                <li key={`${evidence}-${index}`}>{evidence}</li>
               ))}
             </ul>
-          </div>
+          </section>
         )}
 
-        <div className={styles.section}>
-          <span className={styles.sectionTitle}>父母未来 7 天行动建议</span>
-          <div className={styles.actionBox}>
-            {data.next_7_days_stop && (
-              <div className={styles.actionItem}>
-                <XCircle size={18} className={styles.actionStop} />
-                <div style={{fontSize: '0.9rem'}}>
-                  <strong>先停做：</strong>{data.next_7_days_stop}
-                </div>
+        {data.verification_action && (
+          <section className={styles.verificationSection}>
+            <div className={styles.verificationHeading}>
+              <TimerReset size={19} />
+              <div>
+                <span className={styles.sectionTitle}>今晚 5 分钟验证</span>
+                <h4>{data.verification_action.title}</h4>
               </div>
+            </div>
+            {data.verification_action.steps && <p>{data.verification_action.steps}</p>}
+            {data.verification_action.observe && (
+              <p className={styles.observe}><strong>只观察：</strong>{data.verification_action.observe}</p>
             )}
-            {data.next_7_days_start && (
-              <div className={styles.actionItem}>
-                <CheckCircle2 size={18} className={styles.actionStart} />
-                <div style={{fontSize: '0.9rem'}}>
-                  <strong>开始做：</strong>{data.next_7_days_start}
+          </section>
+        )}
+
+        {uncertainties.length > 0 && (
+          <section className={styles.section}>
+            <span className={styles.sectionTitle}>现在还不能确定</span>
+            <ul className={styles.listMuted}>
+              {uncertainties.slice(0, 3).map((item, index) => (
+                <li key={`${item}-${index}`}>{item}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {(data.next_7_days_stop || data.next_7_days_start) && (
+          <section className={styles.section}>
+            <span className={styles.sectionTitle}>接下来先这样做</span>
+            <div className={styles.actionRows}>
+              {data.next_7_days_stop && (
+                <div className={styles.actionItem}>
+                  <XCircle size={18} className={styles.actionStop} />
+                  <p><strong>先停一下：</strong>{data.next_7_days_stop}</p>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
+              )}
+              {data.next_7_days_start && (
+                <div className={styles.actionItem}>
+                  <CheckCircle2 size={18} className={styles.actionStart} />
+                  <p><strong>开始观察：</strong>{data.next_7_days_start}</p>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {data.diagnostic_upgrade && (
+          <section className={styles.upgradeSection}>
+            <Search size={19} />
+            <div>
+              <span className={styles.inlineLabel}>要进一步确认</span>
+              <p>{data.diagnostic_upgrade}</p>
+            </div>
+          </section>
+        )}
       </div>
-    </div>
+    </article>
   );
 }

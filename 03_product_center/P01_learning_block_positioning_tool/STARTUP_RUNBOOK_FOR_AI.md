@@ -309,6 +309,15 @@ cd D:\wbh\social-media\anshi-learning-lab
 & "C:\Users\10707\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" -m py_compile .\03_product_center\P01_learning_block_positioning_tool\web_app\server.py
 ```
 
+诊断行为回归测试：
+
+```powershell
+cd D:\wbh\social-media\anshi-learning-lab\03_product_center\P01_learning_block_positioning_tool\agent_engine
+python -m unittest discover -s tests -v
+```
+
+这组测试必须覆盖数学、物理、化学不串科，用户答案真实改变判断，以及放大因素不抢主卡点。
+
 ## 10. 当前架构速记
 
 ```text
@@ -320,7 +329,9 @@ Python backend http://127.0.0.1:8765
   ↓
 ConversationAgent
   ↓
-规则因子框架 + 可选 DeepSeek 文本增强
+隐藏因子证据层 → 家长可读分类层 → 三科学科验证动作
+  ↓
+可选 DeepSeek 自由文本抽取与结果润色（不控制流程）
   ↓
 JSONL 会话日志 web_app/data/sessions
 ```
@@ -365,4 +376,3 @@ npm run dev
 ```text
 http://localhost:5173/
 ```
-

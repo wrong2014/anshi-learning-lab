@@ -1,43 +1,55 @@
-"""
-P01 对话式智能体 —— LLM 驱动的对话引擎
+"""Controlled conversational diagnostic flow for P01.
 
-取代原来的 if-else 问卷状态机。
-LLM 负责：理解语义 → 决定追问/出结果 → 生成自然语言 + 可选 UI Block。
-规则系统退到幕后做护栏校验。
+The rule engine owns evidence and flow. The optional LLM only extracts signals
+from free text and polishes the final parent-facing summary.
 """
 
 from __future__ import annotations
 
-import json
 import re
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
-from copy import deepcopy
 from uuid import uuid4
 
 from .factor_rules import (
     FACTOR_ACTIONS,
-    FACTOR_PUBLIC_LABELS,
     OPTION_PUBLIC_LABELS,
+    OPTION_WEIGHTS,
+    accumulate_amplifier_scores,
+    accumulate_category_scores,
     accumulate_scores,
     infer_option_ids_from_text,
     infer_subject_from_text,
+    ranked_categories,
 )
-from .llm_providers import LLMAdapter, ProviderRegistry
-from .models import FactorCode, Subject
-from .prompts import SYSTEM_PROMPT, FIRST_TURN_USER_MESSAGE
+from .llm_providers import LLMAdapter
+from .models import (
+    AMPLIFIER_LABELS,
+    CATEGORY_LABELS,
+    FACTOR_TO_CATEGORY,
+    AmplifierCode,
+    DiagnosticCategory,
+    FactorCode,
+    Subject,
+    UIBlock,
+)
+from .question_bank import (
+    category_candidate_question,
+    category_detail_question,
+    context_amplifier_question,
+)
+from .verification_actions import get_verification_action
 
 
 @dataclass
 class AgentMessage:
-    """智能体的一轮回复"""
     text: str
     ui_block: dict[str, Any] | None = None
 
 
 @dataclass
 class AgentTurnResult:
-    """一轮对话的完整结果"""
     messages: list[AgentMessage]
     should_conclude: bool = False
     result: dict[str, Any] | None = None
@@ -47,7 +59,6 @@ class AgentTurnResult:
 
 @dataclass
 class ConversationSession:
-    """对话会话状态"""
     session_id: str = field(default_factory=lambda: str(uuid4()))
     history: list[dict[str, str]] = field(default_factory=list)
     turn_count: int = 0
@@ -57,36 +68,73 @@ class ConversationSession:
     fallback_subject: Subject = Subject.UNKNOWN
     fallback_option_ids: list[str] = field(default_factory=list)
     fallback_asked_block_ids: set[str] = field(default_factory=set)
+    grade_level: int = 0
+    diagnostic_stage: str = "story"
+    free_text_evidence: list[str] = field(default_factory=list)
+    llm_evidence: list[str] = field(default_factory=list)
+    uncertainty_notes: list[str] = field(default_factory=list)
+    candidate_categories: list[str] = field(default_factory=list)
+    identified_category: str = ""
 
 
 class ConversationAgent:
-    """LLM 驱动的对话式智能体"""
+    """Evidence-driven dialogue with optional semantic extraction."""
 
-    MAX_TURNS = 8  # 安全阀：最多 8 轮对话后强制出结果
+    MAX_TURNS = 6
+
+    _SUBJECT_LABELS = {
+        Subject.MATH: "数学",
+        Subject.PHYSICS: "物理",
+        Subject.CHEMISTRY: "化学",
+        Subject.UNKNOWN: "理科",
+    }
+
+    _DEFAULT_CATEGORY_ORDER = {
+        Subject.MATH: [
+            DiagnosticCategory.C_MODELING,
+            DiagnosticCategory.B_REPRESENTATION,
+            DiagnosticCategory.D_EXECUTION,
+            DiagnosticCategory.A_FOUNDATION,
+            DiagnosticCategory.E_SELF_REGULATION,
+        ],
+        Subject.PHYSICS: [
+            DiagnosticCategory.B_REPRESENTATION,
+            DiagnosticCategory.A_FOUNDATION,
+            DiagnosticCategory.C_MODELING,
+            DiagnosticCategory.D_EXECUTION,
+            DiagnosticCategory.E_SELF_REGULATION,
+        ],
+        Subject.CHEMISTRY: [
+            DiagnosticCategory.B_REPRESENTATION,
+            DiagnosticCategory.A_FOUNDATION,
+            DiagnosticCategory.C_MODELING,
+            DiagnosticCategory.D_EXECUTION,
+            DiagnosticCategory.E_SELF_REGULATION,
+        ],
+        Subject.UNKNOWN: list(DiagnosticCategory),
+    }
+
+    _CATEGORY_DESCRIPTIONS = {
+        DiagnosticCategory.A_FOUNDATION: "眼前这道题只是表面，真正需要先确认的是旧知识、概念含义或错误理解从哪里断开。",
+        DiagnosticCategory.B_REPRESENTATION: "孩子可能看见了题目，却没有把文字、符号、图形和条件稳定地转成可用的解题信息。",
+        DiagnosticCategory.C_MODELING: "孩子并非完全听不懂，而是还不能独立把情境中的关系搭起来，所以题目一变就容易失去入口。",
+        DiagnosticCategory.D_EXECUTION: "思路可能已经出现，但步骤、计算、单位或多条件处理还没有形成稳定流程。",
+        DiagnosticCategory.E_SELF_REGULATION: "卡住之后的定位、复盘和情绪恢复没有形成闭环，导致当时看懂了也难以变成下一次会做。",
+    }
 
     def __init__(self, adapter: LLMAdapter):
         self.adapter = adapter
 
     def start_session(self) -> tuple[ConversationSession, AgentTurnResult]:
-        """开始一个新的对话会话"""
         session = ConversationSession()
-
-        if not self.adapter.is_ready():
-            # LLM 不可用时的降级处理
-            return session, AgentTurnResult(
-                messages=[AgentMessage(
-                    text="你好，我先听你说。最近孩子在数学、物理或化学学习里，哪件事最让你担心？像发微信一样说一段就行：哪一科、发生了什么、孩子怎么反应、你当时怎么帮。"
-                )]
-            )
-
-        # 用 LLM 生成开场白
-        session.history.append({"role": "user", "content": FIRST_TURN_USER_MESSAGE})
-        result = self._call_llm(session)
-        session.history.append({"role": "assistant", "content": self._raw_response_cache})
-        session.turn_count += 1
-        self._remember_pending_ui_block(session, result)
-
-        return session, result
+        return session, AgentTurnResult(
+            messages=[AgentMessage(
+                text=(
+                    "你好，我先听你说。最近孩子在数学、物理或化学里，"
+                    "哪一件事最让你担心？像发微信一样说就行，不用先判断是粗心还是态度问题。"
+                )
+            )]
+        )
 
     def process_user_input(
         self,
@@ -96,178 +144,56 @@ class ConversationAgent:
         selected_labels: list[str] | None = None,
         ui_block_id: str | None = None,
     ) -> AgentTurnResult:
-        """处理用户的一轮输入"""
-        # 构建用户消息
-        parts = []
-        if ui_block_id:
-            parts.append(f"（正在回答追问ID：{ui_block_id}）")
-            if session.pending_ui_block_id and ui_block_id != session.pending_ui_block_id:
-                parts.append(f"（注意：服务端当前等待的追问ID是：{session.pending_ui_block_id}，本轮可能来自旧卡片或用户自由补充。）")
-        if text:
-            parts.append(text)
-        if selected_labels:
-            parts.append(f"（用户选择了：{'、'.join(selected_labels)}）")
-        elif selected_option_ids:
-            parts.append(f"（用户选择了选项：{'、'.join(selected_option_ids)}）")
-
-        user_message = " ".join(parts) if parts else "（用户跳过了这个问题）"
-        session.history.append({"role": "user", "content": user_message})
+        selected_option_ids = selected_option_ids or []
+        selected_labels = selected_labels or []
         session.turn_count += 1
 
-        if not self.adapter.is_ready():
-            self._record_rule_signals(
-                session=session,
-                text=text,
-                selected_option_ids=selected_option_ids or [],
-                selected_labels=selected_labels or [],
-                ui_block_id=ui_block_id,
-            )
-            return self._fallback_response(session)
-
-        # 如果已经到了最大轮次，强制要求出结果
-        force_conclude = session.turn_count >= self.MAX_TURNS
-
-        result = self._call_llm(session, force_conclude=force_conclude)
-        session.history.append({"role": "assistant", "content": self._raw_response_cache})
-        self._remember_pending_ui_block(session, result)
-
-        if result.should_conclude:
-            session.is_complete = True
-
-        return result
-
-    def _remember_pending_ui_block(self, session: ConversationSession, result: AgentTurnResult) -> None:
-        """记录当前等待用户回答的 UI block，保证多轮对话有明确追问 ID。"""
-        ui_block = None
-        for message in reversed(result.messages):
-            if message.ui_block:
-                ui_block = message.ui_block
-                break
-
-        if ui_block:
-            session.pending_ui_block_id = str(ui_block.get("id") or "")
-            session.pending_ui_block_type = str(ui_block.get("type") or "")
-        else:
-            session.pending_ui_block_id = None
-            session.pending_ui_block_type = None
-
-    def _call_llm(self, session: ConversationSession, force_conclude: bool = False) -> AgentTurnResult:
-        """调用 LLM 获取下一轮回复"""
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-        # 添加对话历史（跳过内部的 system message）
-        for msg in session.history:
-            messages.append({"role": msg["role"], "content": msg["content"]})
-
-        # 如果需要强制出结果，追加指令
-        if force_conclude:
-            messages.append({
-                "role": "system",
-                "content": "注意：对话已经进行了足够多轮。请在本轮直接输出最终定位结果（should_conclude=true），不要再追问。如果信息不足，在 missing_information 中说明。"
-            })
-
-        try:
-            raw = self.adapter.text_client().chat_text(messages, max_tokens=1500)
-            self._raw_response_cache = raw
-            return self._parse_llm_response(raw)
-        except Exception as e:
-            print(f"[ConversationAgent] LLM call failed: {e}")
-            self._raw_response_cache = ""
-            return AgentTurnResult(
-                messages=[AgentMessage(text="抱歉，我需要一点时间整理思路。你可以继续描述，或者选择下面的选项。")],
-            )
-
-    def _parse_llm_response(self, raw: str) -> AgentTurnResult:
-        """解析 LLM 返回的 JSON"""
-        try:
-            data = self._extract_json(raw)
-        except (json.JSONDecodeError, ValueError):
-            # 如果 LLM 没有返回有效 JSON，把整个文本当作回复
-            return AgentTurnResult(
-                messages=[AgentMessage(text=raw.strip())]
-            )
-
-        response_text = data.get("response_text", "")
-        ui_block = self._normalize_ui_block(data.get("ui_block"))
-        should_conclude = data.get("should_conclude", False)
-        thinking = data.get("thinking", "")
-        collected_signals = data.get("collected_signals")
-        result = data.get("result")
-
-        messages = [AgentMessage(text=response_text, ui_block=ui_block)]
-
-        return AgentTurnResult(
-            messages=messages,
-            should_conclude=should_conclude,
-            result=result,
-            thinking=thinking,
-            collected_signals=collected_signals,
+        self._append_history(session, text, selected_labels, selected_option_ids, ui_block_id)
+        self._record_signals(
+            session,
+            text=text,
+            selected_option_ids=selected_option_ids,
+            ui_block_id=ui_block_id,
         )
 
-    def _extract_json(self, text: str) -> dict[str, Any]:
-        """从 LLM 输出中提取 JSON 对象"""
-        stripped = text.strip()
+        if session.turn_count >= self.MAX_TURNS and session.diagnostic_stage != "story":
+            return self._conclude(session)
 
-        # 尝试直接解析
-        try:
-            return json.loads(stripped)
-        except json.JSONDecodeError:
-            pass
+        if session.diagnostic_stage == "story":
+            return self._handle_story(session)
+        if session.diagnostic_stage == "candidate":
+            return self._handle_candidate_answer(session)
+        if session.diagnostic_stage == "detail":
+            return self._handle_detail_answer(session)
+        if session.diagnostic_stage == "context":
+            return self._conclude(session)
 
-        # 尝试从 markdown code block 中提取
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, re.S)
-        if match:
-            return json.loads(match.group(1))
+        return self._conclude(session)
 
-        # 尝试找最外层的 JSON 对象
-        match = re.search(r"\{.*\}", stripped, re.S)
-        if match:
-            return json.loads(match.group(0))
+    def _append_history(
+        self,
+        session: ConversationSession,
+        text: str | None,
+        selected_labels: list[str],
+        selected_option_ids: list[str],
+        ui_block_id: str | None,
+    ) -> None:
+        parts: list[str] = []
+        if ui_block_id:
+            parts.append(f"（回答追问：{ui_block_id}）")
+        if text and text.strip():
+            parts.append(text.strip())
+        if selected_labels:
+            parts.append(f"（选择：{'、'.join(selected_labels)}）")
+        elif selected_option_ids:
+            parts.append(f"（选择ID：{'、'.join(selected_option_ids)}）")
+        session.history.append({"role": "user", "content": " ".join(parts) or "（跳过）"})
 
-        raise ValueError("No JSON found in LLM response")
-
-    def _normalize_ui_block(self, ui_block: Any) -> dict[str, Any] | None:
-        """把 LLM 生成的 UI block 规整成前端稳定可执行的结构。"""
-        if not isinstance(ui_block, dict):
-            return None
-
-        block = deepcopy(ui_block)
-        block_type = str(block.get("type") or "single_choice")
-        title = str(block.get("title") or "")
-        body = str(block.get("body") or "")
-        block_id = str(block.get("id") or "")
-        semantic_text = f"{block_id} {title} {body}"
-
-        should_be_multi = bool(re.search(
-            r"父母|家长|怎么帮|帮助方式|AI|错题后|做完错题|通常.*做法|通常会|一般会|处理方式|复盘|重做",
-            semantic_text,
-        ))
-
-        if should_be_multi:
-            block_type = "multi_choice"
-
-        block["type"] = block_type
-        block.setdefault("allow_free_text", True)
-        block.setdefault("free_text_label", "都不像，我自己说")
-        block.setdefault("free_text_placeholder", "用你自己的话说，不用选上面的。")
-
-        if block_type == "multi_choice":
-            block.setdefault("allow_skip", True)
-            block.setdefault("min_select", 1)
-            block.setdefault("max_select", 3)
-
-        options = block.get("options")
-        if not isinstance(options, list):
-            block["options"] = []
-
-        return block
-
-    def _record_rule_signals(
+    def _record_signals(
         self,
         session: ConversationSession,
         text: str | None,
         selected_option_ids: list[str],
-        selected_labels: list[str],
         ui_block_id: str | None,
     ) -> None:
         if ui_block_id:
@@ -281,258 +207,329 @@ class ConversationAgent:
             "subject_chemistry": Subject.CHEMISTRY,
             "chemistry": Subject.CHEMISTRY,
         }
+        clean_ids = [option_id for option_id in selected_option_ids if option_id]
+        if "context_none_obvious" in clean_ids and len(clean_ids) > 1:
+            clean_ids = [option_id for option_id in clean_ids if option_id != "context_none_obvious"]
 
-        for option_id in selected_option_ids:
+        for option_id in clean_ids:
             if option_id in subject_map:
                 session.fallback_subject = subject_map[option_id]
-            elif option_id and not option_id.startswith("_"):
+            elif not option_id.startswith("_"):
                 session.fallback_option_ids.append(option_id)
 
-        combined_text = " ".join([text or "", " ".join(selected_labels or [])]).strip()
-        if combined_text:
-            inferred_subject = infer_subject_from_text(combined_text)
+        if text and text.strip():
+            stripped = text.strip()
+            if stripped not in session.free_text_evidence:
+                session.free_text_evidence.append(stripped)
+
+            inferred_subject = infer_subject_from_text(stripped)
             if session.fallback_subject == Subject.UNKNOWN and inferred_subject != Subject.UNKNOWN:
                 session.fallback_subject = inferred_subject
-            session.fallback_option_ids.extend(infer_option_ids_from_text(combined_text))
+            if session.grade_level == 0:
+                session.grade_level = self._extract_grade(stripped)
+
+            session.fallback_option_ids.extend(infer_option_ids_from_text(stripped))
+            self._record_llm_signals(session, stripped)
 
         session.fallback_option_ids = list(dict.fromkeys(session.fallback_option_ids))
 
-    def _fallback_response(self, session: ConversationSession) -> AgentTurnResult:
-        """LLM 不可用时的降级回复"""
-        option_ids = set(session.fallback_option_ids)
+    def _record_llm_signals(self, session: ConversationSession, text: str) -> None:
+        if not self.adapter.is_ready():
+            return
+        extracted = self.adapter.extract_signals(session.fallback_subject.value, text)
+        session.fallback_option_ids.extend(extracted.option_ids)
+        for note in extracted.evidence_notes:
+            if note and note not in session.llm_evidence:
+                session.llm_evidence.append(note)
+        for note in extracted.uncertainty_notes:
+            if note and note not in session.uncertainty_notes:
+                session.uncertainty_notes.append(note)
 
-        if session.fallback_subject == Subject.UNKNOWN and "fallback_subject_select" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
+    def _handle_story(self, session: ConversationSession) -> AgentTurnResult:
+        if session.fallback_subject == Subject.UNKNOWN:
+            return self._question(
                 session,
-                text="我先把范围收窄一点。这件事主要发生在哪一科？如果你已经说过，也可以直接用自己的话补充。",
+                text="我先确认一下，你刚才说的这件事主要发生在哪一科？",
                 ui_block={
                     "type": "single_choice",
-                    "id": "fallback_subject_select",
+                    "id": "diagnostic_subject",
                     "title": "主要是哪一科？",
-                    "allow_free_text": True,
-                    "free_text_label": "我自己说",
-                    "free_text_placeholder": "比如：主要是物理电路题。",
                     "options": [
                         {"id": "subject_math", "label": "数学"},
                         {"id": "subject_physics", "label": "物理"},
                         {"id": "subject_chemistry", "label": "化学"},
                     ],
-                },
-            )
-
-        stuck_ids = {
-            "stuck_read_problem",
-            "stuck_concept_formula",
-            "stuck_transform",
-            "stuck_select_method",
-            "stuck_execution",
-            "stuck_repeat_after_answer",
-            "stuck_emotional_avoidance",
-            "stuck_attention_overload",
-            "stuck_confident_wrong_idea",
-        }
-        if not option_ids.intersection(stuck_ids) and "fallback_stuck_step" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
-                session,
-                text="我听到的是一次真实卡住。只看这一次，更像先卡在哪一步？可以选一个，也可以自己说。",
-                ui_block={
-                    "type": "single_choice",
-                    "id": "fallback_stuck_step",
-                    "title": "更像卡在哪一步？",
                     "allow_free_text": True,
-                    "free_text_label": "都不像，我自己说",
-                    "free_text_placeholder": "比如：题目条件太多，他一下就乱了。",
-                    "options": [
-                        {"id": "stuck_read_problem", "label": "题目读完，不确定在问什么"},
-                        {"id": "stuck_concept_formula", "label": "概念或公式知道，但说不清"},
-                        {"id": "stuck_transform", "label": "不知道怎么画图、列式或转化"},
-                        {"id": "stuck_select_method", "label": "不知道选哪个方法或公式"},
-                        {"id": "stuck_execution", "label": "会做但步骤、计算、单位总出错"},
-                        {"id": "stuck_repeat_after_answer", "label": "看答案懂了，下次又不会"},
-                        {"id": "stuck_attention_overload", "label": "条件一多就乱、漏条件"},
-                        {"id": "stuck_confident_wrong_idea", "label": "孩子很笃定，但理解方向错了"},
-                    ],
+                    "free_text_label": "我直接说",
+                    "free_text_placeholder": "比如：主要是初二物理电路题。",
                 },
             )
 
-        subject_probe = self._fallback_subject_probe(session)
-        if subject_probe:
-            return subject_probe
-
-        parent_ids = {
-            "parent_explain_full_solution",
-            "parent_add_more_exercises",
-            "parent_ask_breakpoint",
-            "parent_ai_gives_answer",
-            "parent_review_then_retest",
-        }
-        if not option_ids.intersection(parent_ids) and "fallback_parent_support" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
+        if not self._has_core_evidence(session) and "diagnostic_more_detail" not in session.fallback_asked_block_ids:
+            return self._question(
                 session,
-                text="这个时候你一般会怎么帮？这里可能不止一种，选最常发生的就行。",
+                text=(
+                    "我知道你很着急，但“成绩差”或“总粗心”还不能帮我找到断点。"
+                    "你想一下最近印象最深的一次：哪类题、孩子从哪一步开始不对？"
+                ),
                 ui_block={
-                    "type": "multi_choice",
-                    "id": "fallback_parent_support",
-                    "title": "你当时一般怎么帮？",
-                    "body": "可以多选。不是评判你对错，是看帮助方式和卡点是否对位。",
-                    "allow_skip": True,
+                    "type": "short_text",
+                    "id": "diagnostic_more_detail",
+                    "title": "说一次最近发生的具体情况",
+                    "options": [],
                     "allow_free_text": True,
-                    "free_text_label": "我家的情况不太一样",
-                    "free_text_placeholder": "比如：我会先让他讲思路，但讲着讲着就变成我在讲。",
-                    "min_select": 1,
-                    "max_select": 3,
-                    "options": [
-                        {"id": "parent_explain_full_solution", "label": "我会直接讲完整解法"},
-                        {"id": "parent_add_more_exercises", "label": "我会让他多做几道类似题"},
-                        {"id": "parent_ask_breakpoint", "label": "我会先问他从哪一步不会"},
-                        {"id": "parent_ai_gives_answer", "label": "会让 AI 或软件讲答案"},
-                        {"id": "parent_review_then_retest", "label": "会复盘并隔天重做"},
-                    ],
+                    "free_text_label": "我来描述",
+                    "free_text_placeholder": "比如：初二数学应用题，题意能复述，但每次都列不出关系式。",
                 },
             )
 
-        review_ids = {
-            "probe_cannot_name_breakpoint",
-            "probe_only_reads_answer",
-            "probe_ai_answer_first",
-            "probe_parent_takes_over",
-            "probe_many_conditions_overload",
-            "probe_confident_but_wrong_rule",
-            "probe_emotion_blocks_start",
-        }
-        if not option_ids.intersection(review_ids) and "fallback_review_probe" not in session.fallback_asked_block_ids:
-            return self._fallback_question(
-                session,
-                text="最后我再确认一个会影响准确率的点：错题或难题之后，最常发生什么？",
-                ui_block={
-                    "type": "multi_choice",
-                    "id": "fallback_review_probe",
-                    "title": "后面通常会发生什么？",
-                    "allow_skip": True,
-                    "allow_free_text": True,
-                    "free_text_label": "我自己说",
-                    "free_text_placeholder": "比如：他当时说懂了，但第二天不愿意再碰。",
-                    "min_select": 1,
-                    "max_select": 3,
-                    "options": [
-                        {"id": "probe_cannot_name_breakpoint", "label": "孩子说不清第一处断点"},
-                        {"id": "probe_only_reads_answer", "label": "主要看懂答案，很少隔天独立重做"},
-                        {"id": "probe_ai_answer_first", "label": "很快找 AI 或答案"},
-                        {"id": "probe_parent_takes_over", "label": "父母会接管思路，孩子主要听"},
-                        {"id": "probe_many_conditions_overload", "label": "条件一多就乱"},
-                        {"id": "probe_confident_but_wrong_rule", "label": "很有把握，但规则用错"},
-                        {"id": "probe_emotion_blocks_start", "label": "明显烦躁、紧张或逃开"},
-                    ],
-                },
-            )
+        categories = self._candidate_categories(session)
+        session.candidate_categories = [category.value for category in categories]
+        session.diagnostic_stage = "candidate"
+        block = self._ui_block(category_candidate_question(session.fallback_subject, categories))
+        return self._question(
+            session,
+            text=self._paraphrase_and_narrow(session, categories),
+            ui_block=block,
+        )
 
-        result = self._compose_fallback_result(session)
+    def _handle_candidate_answer(self, session: ConversationSession) -> AgentTurnResult:
+        category = self._top_category(session)
+        session.identified_category = category.value
+        session.diagnostic_stage = "detail"
+        return self._question(
+            session,
+            text=(
+                f"明白了。现在更值得优先核对的是「{CATEGORY_LABELS[category]}」。"
+                "我再用一个问题把里面最容易混淆的几种情况分开。"
+            ),
+            ui_block=self._ui_block(category_detail_question(category)),
+        )
+
+    def _handle_detail_answer(self, session: ConversationSession) -> AgentTurnResult:
+        category = self._top_category(session)
+        session.identified_category = category.value
+        session.diagnostic_stage = "context"
+        return self._question(
+            session,
+            text=(
+                "这条线索已经比较清楚了。最后只看一下有没有外部情况在放大它；"
+                "这些不会被算成孩子学不好的根因。"
+            ),
+            ui_block=self._ui_block(context_amplifier_question()),
+        )
+
+    def _conclude(self, session: ConversationSession) -> AgentTurnResult:
+        result = self._compose_result(session)
         session.is_complete = True
+        session.diagnostic_stage = "complete"
         session.pending_ui_block_id = None
         session.pending_ui_block_type = None
         return AgentTurnResult(
-            messages=[AgentMessage(text="我先按你刚才说到的线索，整理一个可执行的判断。")],
+            messages=[AgentMessage(text="好，我把刚才的线索收拢一下。下面是初步定位，不是给孩子贴标签。")],
             should_conclude=True,
             result=result,
+            collected_signals={
+                "subject": session.fallback_subject.value,
+                "evidence_count": len(session.fallback_option_ids),
+            },
         )
 
-    def _fallback_subject_probe(self, session: ConversationSession) -> AgentTurnResult | None:
-        subject = session.fallback_subject
-        option_ids = set(session.fallback_option_ids)
-        probe_ids_by_subject = {
-            Subject.MATH: {
-                "block_id": "fallback_math_probe",
-                "ids": {"math_same_template_ok_variant_fail", "math_symbol_condition_missed", "math_multi_condition_overload"},
-                "text": "数学里我再收窄一点，哪种更像？",
-                "options": [
-                    {"id": "math_same_template_ok_variant_fail", "label": "例题同款能做，变式不会"},
-                    {"id": "math_symbol_condition_missed", "label": "题干条件、符号或图形关系常漏掉"},
-                    {"id": "math_multi_condition_overload", "label": "条件一多就乱、漏条件"},
-                ],
-            },
-            Subject.PHYSICS: {
-                "block_id": "fallback_physics_probe",
-                "ids": {"physics_no_diagram", "physics_formula_without_quantity_meaning", "physics_naive_force_motion", "physics_direction_sign_confusion"},
-                "text": "物理里我再收窄一点，哪种更像？",
-                "options": [
-                    {"id": "physics_no_diagram", "label": "不画过程图、受力图或电路图就套公式"},
-                    {"id": "physics_formula_without_quantity_meaning", "label": "公式会背，但每个量代表什么说不清"},
-                    {"id": "physics_naive_force_motion", "label": "容易被直觉经验带偏"},
-                    {"id": "physics_direction_sign_confusion", "label": "方向、正负号或单位容易混乱"},
-                ],
-            },
-            Subject.CHEMISTRY: {
-                "block_id": "fallback_chemistry_probe",
-                "ids": {"chem_symbol_equation_mismatch", "chem_rule_cannot_transfer", "chem_conservation_or_valence_misconception"},
-                "text": "化学里我再收窄一点，哪种更像？",
-                "options": [
-                    {"id": "chem_symbol_equation_mismatch", "label": "现象、粒子变化和方程式对不上"},
-                    {"id": "chem_rule_cannot_transfer", "label": "反应规律换到新物质就不会用"},
-                    {"id": "chem_conservation_or_valence_misconception", "label": "守恒、化合价或微粒观念理解偏了"},
-                ],
-            },
+    def _compose_result(self, session: ConversationSession) -> dict[str, Any]:
+        category = self._top_category(session)
+        factor_scores = accumulate_scores(session.fallback_subject, session.fallback_option_ids)
+        ranked_factors = sorted(factor_scores.items(), key=lambda item: item[1], reverse=True)
+        category_factors = [
+            (factor, score)
+            for factor, score in ranked_factors
+            if FACTOR_TO_CATEGORY.get(factor) == category
+        ]
+        primary_factor = category_factors[0][0] if category_factors else FactorCode.F07_METACOGNITION
+        amplifier_scores = accumulate_amplifier_scores(session.fallback_option_ids)
+        amplifier = max(amplifier_scores, key=amplifier_scores.get) if amplifier_scores else None
+        if amplifier and amplifier_scores[amplifier] < 2:
+            amplifier = None
+
+        action = FACTOR_ACTIONS[primary_factor]
+        verification = get_verification_action(category, session.fallback_subject)
+        evidence = self._public_evidence(session)
+        confidence = self._confidence(session, category)
+        uncertainties = self._uncertainties(session, confidence)
+        subject_label = self._SUBJECT_LABELS[session.fallback_subject]
+        grade_label = self._grade_label(session.grade_level)
+        category_label = CATEGORY_LABELS[category]
+        amplifier_label = AMPLIFIER_LABELS.get(amplifier, "") if amplifier else ""
+
+        summary = (
+            f"目前更像是「{category_label}」在优先影响这次{subject_label}学习。"
+            f"{self._CATEGORY_DESCRIPTIONS[category]}"
+        )
+        if amplifier_label:
+            summary += f" 同时，{amplifier_label}，所以同一个问题可能会反复出现。"
+        summary += " 这只是基于对话的初步定位，今晚的小验证会比继续刷题更有信息量。"
+
+        result: dict[str, Any] = {
+            "subject": session.fallback_subject.value,
+            "subject_label": subject_label,
+            "grade_label": grade_label,
+            "confidence": confidence,
+            "primary_category": category.value,
+            "primary_category_label": category_label,
+            "primary_factor": category_label,
+            "primary_desc": self._CATEGORY_DESCRIPTIONS[category],
+            "secondary_factors": [],
+            "amplifier": amplifier.value if amplifier else None,
+            "amplifier_label": amplifier_label or None,
+            "evidence": evidence,
+            "uncertainties": uncertainties,
+            "missing_information": uncertainties,
+            "verification_action": verification,
+            "parent_common_mistake": action["mistake"],
+            "next_7_days_stop": action["stop"],
+            "next_7_days_start": action["start"],
+            "public_summary": summary,
+            "diagnostic_upgrade": (
+                f"这次对话已经把范围缩到「{category_label}」。如果要确认它在什么题型、"
+                f"哪一步反复出现，下一步应核对孩子最近 1-2 张{subject_label}试卷和真实演算过程。"
+                "重点不是再看一次分数，而是比较多张卷子里重复出现的第一处断点。"
+            ),
         }
-        config = probe_ids_by_subject.get(subject)
-        if not config:
-            return None
-        block_id = config["block_id"]
-        if block_id in session.fallback_asked_block_ids or option_ids.intersection(config["ids"]):
-            return None
-        return self._fallback_question(
-            session,
-            text=str(config["text"]),
-            ui_block={
-                "type": "single_choice",
-                "id": block_id,
-                "title": str(config["text"]),
-                "allow_free_text": True,
-                "free_text_label": "都不像，我自己说",
-                "free_text_placeholder": "用你自己的话补一句具体表现。",
-                "options": config["options"],
-            },
+
+        polished = self.adapter.polish_result({
+            "subject": subject_label,
+            "grade": grade_label,
+            "category": category_label,
+            "description": self._CATEGORY_DESCRIPTIONS[category],
+            "amplifier": amplifier_label or None,
+            "evidence": evidence[:3],
+            "uncertainties": uncertainties[:2],
+        })
+        unsafe_claim = bool(polished and re.search(r"说明.{0,12}没问题|根本不是|问题就是|一定是", polished))
+        if polished and 40 <= len(polished) <= 360 and not unsafe_claim:
+            result["public_summary"] = polished
+        return result
+
+    def _public_evidence(self, session: ConversationSession) -> list[str]:
+        evidence: list[str] = []
+        for text in session.free_text_evidence[:2]:
+            compact = re.sub(r"\s+", " ", text).strip()
+            if compact:
+                evidence.append(f"家长提到：{compact[:100]}")
+        for note in session.llm_evidence[:2]:
+            evidence.append(note[:100])
+        for option_id in session.fallback_option_ids:
+            label = OPTION_PUBLIC_LABELS.get(option_id)
+            if label and not option_id.startswith("category_hint_"):
+                evidence.append(label)
+        return list(dict.fromkeys(evidence))[:6] or ["当前证据仍较少，需要用具体错题继续确认。"]
+
+    def _uncertainties(self, session: ConversationSession, confidence: str) -> list[str]:
+        notes = list(session.uncertainty_notes)
+        notes.append("还没有核对孩子的真实卷面和演算过程。")
+        if not session.grade_level:
+            notes.append("年级信息还不明确，不同年级的知识要求会影响判断。")
+        if confidence == "low":
+            notes.append("当前可观察线索偏少，主卡点仍可能随具体错题调整。")
+        notes.append("还需要区分这是长期稳定模式，还是最近一次考试中的偶发现象。")
+        return list(dict.fromkeys(note for note in notes if note))[:4]
+
+    def _confidence(self, session: ConversationSession, category: DiagnosticCategory) -> str:
+        category_scores = accumulate_category_scores(session.fallback_subject, session.fallback_option_ids)
+        ordered = sorted(category_scores.values(), reverse=True)
+        gap = ordered[0] - ordered[1] if len(ordered) > 1 else (ordered[0] if ordered else 0)
+        core_count = sum(
+            1
+            for option_id in set(session.fallback_option_ids)
+            if any(factor in FACTOR_TO_CATEGORY for factor in OPTION_WEIGHTS.get(option_id, {}))
+        )
+        detail_answered = "diagnostic_category_detail" in session.fallback_asked_block_ids
+        if core_count >= 4 and gap >= 2 and detail_answered:
+            return "high"
+        if core_count >= 2 and gap >= 0.8:
+            return "medium"
+        return "low"
+
+    def _has_core_evidence(self, session: ConversationSession) -> bool:
+        return any(
+            any(factor in FACTOR_TO_CATEGORY for factor in OPTION_WEIGHTS.get(option_id, {}))
+            for option_id in session.fallback_option_ids
         )
 
-    def _fallback_question(
+    def _candidate_categories(self, session: ConversationSession) -> list[DiagnosticCategory]:
+        ordered = ranked_categories(session.fallback_subject, session.fallback_option_ids)
+        for category in self._DEFAULT_CATEGORY_ORDER[session.fallback_subject]:
+            if category not in ordered:
+                ordered.append(category)
+        return ordered[:3]
+
+    def _top_category(self, session: ConversationSession) -> DiagnosticCategory:
+        ordered = ranked_categories(session.fallback_subject, session.fallback_option_ids)
+        if ordered:
+            return ordered[0]
+        if session.identified_category:
+            return DiagnosticCategory(session.identified_category)
+        return self._DEFAULT_CATEGORY_ORDER[session.fallback_subject][0]
+
+    def _paraphrase_and_narrow(
+        self,
+        session: ConversationSession,
+        categories: list[DiagnosticCategory],
+    ) -> str:
+        original = session.free_text_evidence[0] if session.free_text_evidence else "孩子最近理科学习不太稳定"
+        original = re.sub(r"\s+", " ", original).strip()[:90].rstrip("。！？!?，,；;")
+        labels = "、".join(f"「{CATEGORY_LABELS[item]}」" for item in categories[:2])
+        return (
+            f"我先确认一下我听懂了：你最担心的是“{original}”。"
+            f"这不一定只是粗心，目前更值得先区分的是{labels}。"
+            "下面哪一种最接近孩子真正开始卡住的那一刻？"
+        )
+
+    def _question(
         self,
         session: ConversationSession,
         text: str,
         ui_block: dict[str, Any],
     ) -> AgentTurnResult:
-        session.pending_ui_block_id = str(ui_block.get("id") or "")
-        session.pending_ui_block_type = str(ui_block.get("type") or "")
-        return AgentTurnResult(messages=[AgentMessage(text=text, ui_block=ui_block)])
+        block = deepcopy(ui_block)
+        block.setdefault("allow_free_text", True)
+        block.setdefault("free_text_label", "都不像，我自己说")
+        block.setdefault("free_text_placeholder", "用你自己的话补充，我会重新分析。")
+        if block.get("type") == "multi_choice":
+            block.setdefault("allow_skip", True)
+            block.setdefault("min_select", 1)
+            block.setdefault("max_select", 3)
+        session.pending_ui_block_id = str(block.get("id") or "")
+        session.pending_ui_block_type = str(block.get("type") or "")
+        if session.pending_ui_block_id:
+            session.fallback_asked_block_ids.add(session.pending_ui_block_id)
+        return AgentTurnResult(messages=[AgentMessage(text=text, ui_block=block)])
 
-    def _compose_fallback_result(self, session: ConversationSession) -> dict[str, Any]:
-        scores = accumulate_scores(session.fallback_subject, session.fallback_option_ids)
-        if not scores:
-            scores = {FactorCode.F07_METACOGNITION: 1.0}
+    @staticmethod
+    def _ui_block(block: UIBlock) -> dict[str, Any]:
+        return block.model_dump(mode="json", exclude_none=True)
 
-        sorted_scores = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        primary = sorted_scores[0][0]
-        secondary = [factor for factor, _ in sorted_scores[1:3]]
-        action = FACTOR_ACTIONS[primary]
+    @staticmethod
+    def _extract_grade(text: str) -> int:
+        junior = re.search(r"初(?:中)?\s*([一二三123])", text)
+        if junior:
+            return {"一": 7, "二": 8, "三": 9, "1": 7, "2": 8, "3": 9}[junior.group(1)]
+        senior = re.search(r"高(?:中)?\s*([一二三123])", text)
+        if senior:
+            return {"一": 10, "二": 11, "三": 12, "1": 10, "2": 11, "3": 12}[senior.group(1)]
+        chinese = re.search(r"([一二三四五六七八九])\s*年级", text)
+        if chinese:
+            return {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}[chinese.group(1)]
+        numeric = re.search(r"(1[0-2]|[1-9])\s*年级", text)
+        if numeric:
+            return int(numeric.group(1))
+        return 0
 
-        evidence = [
-            OPTION_PUBLIC_LABELS.get(option_id, option_id)
-            for option_id in session.fallback_option_ids
-            if option_id in OPTION_PUBLIC_LABELS
-        ]
-        if not evidence:
-            evidence = ["当前主要依据来自家长自然描述，证据还偏少。"]
-
-        primary_label = FACTOR_PUBLIC_LABELS[primary]
-        return {
-            "subject": session.fallback_subject.value,
-            "primary_factor": primary_label,
-            "primary_desc": f"目前线索最集中在「{primary_label}」。这个判断来自最近一次卡住事件，需要后续结合具体题目继续校准。",
-            "secondary_factors": [FACTOR_PUBLIC_LABELS[factor] for factor in secondary],
-            "evidence": evidence[:6],
-            "missing_information": [] if len(evidence) >= 3 else ["还缺孩子自己的说法或一道具体错题。"],
-            "parent_common_mistake": action["mistake"],
-            "next_7_days_stop": action["stop"],
-            "next_7_days_start": action["start"],
-            "public_summary": (
-                f"目前更像是「{primary_label}」在优先影响这次理科学习。"
-                f"先不要把问题扩大成孩子不努力，未来 7 天只观察一个小动作：{action['start']}"
-            ),
-        }
+    @staticmethod
+    def _grade_label(grade: int) -> str:
+        if 1 <= grade <= 6:
+            return f"小学{grade}年级"
+        if 7 <= grade <= 9:
+            return f"初{'一二三'[grade - 7]}"
+        if 10 <= grade <= 12:
+            return f"高{'一二三'[grade - 10]}"
+        return ""

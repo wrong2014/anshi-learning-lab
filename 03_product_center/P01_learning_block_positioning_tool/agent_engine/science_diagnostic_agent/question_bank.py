@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import FactorCode
+from .models import CATEGORY_LABELS, DiagnosticCategory, FactorCode, Subject
 from .models import UIBlock, UIBlockType, UIOption
 
 
@@ -196,6 +196,124 @@ def adaptive_probe_question(top_factors: list[FactorCode]) -> UIBlock:
             UIOption(id="probe_text_to_diagram_hard", label="题目转不成图、式子或关系"),
             UIOption(id="probe_cannot_name_breakpoint", label="说不清第一处断点"),
             UIOption(id="probe_only_reads_answer", label="看懂答案，但缺少复测"),
+        ],
+        allow_skip=True,
+    )
+
+
+_CATEGORY_OPTION_IDS: dict[DiagnosticCategory, str] = {
+    DiagnosticCategory.A_FOUNDATION: "category_hint_foundation",
+    DiagnosticCategory.B_REPRESENTATION: "category_hint_representation",
+    DiagnosticCategory.C_MODELING: "category_hint_modeling",
+    DiagnosticCategory.D_EXECUTION: "category_hint_execution",
+    DiagnosticCategory.E_SELF_REGULATION: "category_hint_self_regulation",
+}
+
+
+_CATEGORY_HINTS: dict[Subject, dict[DiagnosticCategory, str]] = {
+    Subject.MATH: {
+        DiagnosticCategory.A_FOUNDATION: "基础概念、公式含义或旧知识本身就不稳",
+        DiagnosticCategory.B_REPRESENTATION: "题目条件、符号或图形没有顺利进入列式",
+        DiagnosticCategory.C_MODELING: "题意大致明白，但关系建不起来，题一变就不会",
+        DiagnosticCategory.D_EXECUTION: "思路可能有了，但运算、符号或多步骤中间出错",
+        DiagnosticCategory.E_SELF_REGULATION: "看答案像是懂了，之后仍不会或不愿再碰",
+    },
+    Subject.PHYSICS: {
+        DiagnosticCategory.A_FOUNDATION: "物理量和公式会背，但真正含义或适用条件不清",
+        DiagnosticCategory.B_REPRESENTATION: "题目条件没有顺利转成受力图、过程图或电路图",
+        DiagnosticCategory.C_MODELING: "场景能读懂，但对象、过程和定律连不起来",
+        DiagnosticCategory.D_EXECUTION: "公式大致选对，但单位、方向、代入或多步推导出错",
+        DiagnosticCategory.E_SELF_REGULATION: "卡住后很快看答案，之后仍不能独立完成",
+    },
+    Subject.CHEMISTRY: {
+        DiagnosticCategory.A_FOUNDATION: "概念、微粒观念、守恒或化合价本身不稳",
+        DiagnosticCategory.B_REPRESENTATION: "现象、粒子变化和符号方程式对不上",
+        DiagnosticCategory.C_MODELING: "规律学过，但换物质或实验情境就不会用",
+        DiagnosticCategory.D_EXECUTION: "思路大致有了，但配平、关系量或计算步骤出错",
+        DiagnosticCategory.E_SELF_REGULATION: "看答案时明白，隔天仍不会或开始回避",
+    },
+}
+
+
+def category_candidate_question(
+    subject: Subject,
+    categories: list[DiagnosticCategory],
+) -> UIBlock:
+    ordered = list(dict.fromkeys(categories))
+    for category in DiagnosticCategory:
+        if len(ordered) >= 3:
+            break
+        if category not in ordered:
+            ordered.append(category)
+
+    labels = _CATEGORY_HINTS.get(subject, _CATEGORY_HINTS[Subject.MATH])
+    options = [
+        UIOption(id=_CATEGORY_OPTION_IDS[category], label=labels[category])
+        for category in ordered[:3]
+    ]
+    return UIBlock(
+        id="diagnostic_category_candidates",
+        type=UIBlockType.SINGLE_CHOICE,
+        title="更像从哪一处开始卡住？",
+        body="先选最接近的一项；不确定也可以直接补充。",
+        options=options,
+        allow_skip=True,
+    )
+
+
+_CATEGORY_PROBES: dict[DiagnosticCategory, list[UIOption]] = {
+    DiagnosticCategory.A_FOUNDATION: [
+        UIOption(id="probe_foundation_old_knowledge", label="一追问就会牵出以前学过、现在已经不稳的知识"),
+        UIOption(id="probe_foundation_explain", label="会背定义或公式，但用自己的话解释不清"),
+        UIOption(id="probe_foundation_confident_wrong", label="孩子很确定自己的理解，可规则或因果方向本身错了"),
+    ],
+    DiagnosticCategory.B_REPRESENTATION: [
+        UIOption(id="probe_representation_misread", label="关键词、符号、单位或限制条件没有读准确"),
+        UIOption(id="probe_representation_convert", label="题意能复述，但转不成图、式子、方程式或过程关系"),
+        UIOption(id="probe_representation_midway_loss", label="条件开始时看到了，做到中间却丢了"),
+    ],
+    DiagnosticCategory.C_MODELING: [
+        UIOption(id="probe_modeling_cannot_start", label="知道题目在说什么，但找不到第一条关系"),
+        UIOption(id="probe_modeling_variant", label="例题同款会做，换情境或综合起来就不会"),
+        UIOption(id="probe_modeling_method_boundary", label="方法和公式都学过，但不知道此时该选哪一个"),
+    ],
+    DiagnosticCategory.D_EXECUTION: [
+        UIOption(id="probe_execution_repeated_detail", label="同一种符号、运算、单位或步骤错误反复出现"),
+        UIOption(id="probe_execution_many_conditions", label="简单步骤能做，条件或步骤一多就乱"),
+        UIOption(id="probe_execution_exam_only", label="平时大致会，一到考试或限时就明显失稳"),
+    ],
+    DiagnosticCategory.E_SELF_REGULATION: [
+        UIOption(id="probe_regulation_no_breakpoint", label="错后说不清自己从哪一步开始偏了"),
+        UIOption(id="probe_regulation_answer_only", label="看答案时觉得懂了，但之后不能独立重做"),
+        UIOption(id="probe_regulation_avoidance", label="一遇到难题就明显烦躁、紧张或不愿继续"),
+    ],
+}
+
+
+def category_detail_question(category: DiagnosticCategory) -> UIBlock:
+    return UIBlock(
+        id="diagnostic_category_detail",
+        type=UIBlockType.SINGLE_CHOICE,
+        title=f"关于「{CATEGORY_LABELS[category]}」，哪一种最接近？",
+        body="这一步用来区分真正该先处理的细节。",
+        options=list(_CATEGORY_PROBES[category]),
+        allow_skip=True,
+    )
+
+
+def context_amplifier_question() -> UIBlock:
+    return UIBlock(
+        id="diagnostic_context_check",
+        type=UIBlockType.MULTI_CHOICE,
+        title="还有哪些情况会让它变得更明显？",
+        body="可以多选；这些只是放大因素，不会被当成孩子学不好的根因。",
+        options=[
+            UIOption(id="context_support_takes_over", label="大人或 AI 很快接过思路并给出完整过程"),
+            UIOption(id="context_exam_drop", label="平时作业尚可，考试时错误明显增多"),
+            UIOption(id="context_time_pressure", label="时间总是不够，一道题卡住会拖累后面"),
+            UIOption(id="context_sleep_short", label="近期睡眠不足、容易困或反应慢"),
+            UIOption(id="context_fatigue", label="晚间学习时明显疲劳，状态波动大"),
+            UIOption(id="context_none_obvious", label="暂时没有明显情况"),
         ],
         allow_skip=True,
     )

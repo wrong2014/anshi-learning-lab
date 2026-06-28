@@ -11,46 +11,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .factor_rules import ALL_OPTION_IDS
 from .models import ExtractedSignals, LLMProviderConfig, ProviderStatus
 
 
-ALLOWED_OPTION_IDS = {
-    "stuck_read_problem",
-    "stuck_concept_formula",
-    "stuck_transform",
-    "stuck_select_method",
-    "stuck_execution",
-    "stuck_repeat_after_answer",
-    "stuck_emotional_avoidance",
-    "stuck_attention_overload",
-    "stuck_confident_wrong_idea",
-    "parent_explain_full_solution",
-    "parent_add_more_exercises",
-    "parent_ask_breakpoint",
-    "parent_ai_gives_answer",
-    "parent_review_then_retest",
-    "math_same_template_ok_variant_fail",
-    "math_symbol_condition_missed",
-    "math_multi_condition_overload",
-    "physics_no_diagram",
-    "physics_formula_without_quantity_meaning",
-    "physics_naive_force_motion",
-    "physics_direction_sign_confusion",
-    "chem_symbol_equation_mismatch",
-    "chem_rule_cannot_transfer",
-    "chem_conservation_or_valence_misconception",
-    "probe_template_ok_variant_fail",
-    "probe_knows_relation_not_formula",
-    "probe_text_to_diagram_hard",
-    "probe_diagram_to_formula_hard",
-    "probe_ai_answer_first",
-    "probe_parent_takes_over",
-    "probe_cannot_name_breakpoint",
-    "probe_only_reads_answer",
-    "probe_emotion_blocks_start",
-    "probe_many_conditions_overload",
-    "probe_confident_but_wrong_rule",
-}
+ALLOWED_OPTION_IDS = ALL_OPTION_IDS
 
 
 @dataclass(frozen=True)
@@ -253,9 +218,11 @@ class LLMAdapter:
                 "role": "system",
                 "content": (
                     "你是面向家长的学习支持定位助手。"
-                    "请把结构化结果写成克制、具体、可执行的一段中文。"
+                    "请把结构化结果写成克制、具体、可执行的一段中文，控制在100到180字。"
                     "不要说孩子是某某型，不要承诺提分，不要做心理诊断。"
-                    "必须以“目前更像是”开头，长度 120-180 字。"
+                    "不能因为一条表现就说孩子某项能力没问题，也不能把初筛写成确定结论。"
+                    "不要新增结构化结果里没有的建议。必须以“目前更像是”开头，"
+                    "并明确这是需要用真实错题继续核对的初步方向。"
                 ),
             },
             {
