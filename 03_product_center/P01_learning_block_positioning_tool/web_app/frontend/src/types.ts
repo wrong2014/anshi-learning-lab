@@ -1,28 +1,51 @@
 // ===== API 响应类型 =====
 
+export interface UIBlockOption {
+  id: string;
+  label: string;
+  hint?: string;
+}
+
 export interface UIBlock {
-  type: string; // 'single_choice' | 'multi_choice' | 'short_text'
+  type: string; // 'single_choice' | 'multi_choice' | 'subject_picker'
   id: string;
   title?: string;
-  options?: { id: string; label: string }[];
+  body?: string;
+  options?: UIBlockOption[];
+}
+
+export interface VerificationAction {
+  title: string;
+  steps: string;
+  observe: string;
+}
+
+export interface ResultData {
+  subject?: string;
+  subject_label?: string;
+  grade_label?: string;
+  confidence?: string;
+  primary_category?: string;
+  primary_category_label?: string;
+  primary_factor?: string;
+  primary_desc?: string;
+  secondary_factors?: string[];
+  amplifier?: string | null;
+  amplifier_label?: string | null;
+  evidence?: string[];
+  uncertainties?: string[];
+  missing_information?: string[];
+  verification_action?: VerificationAction | null;
+  parent_common_mistake?: string;
+  next_7_days_stop?: string;
+  next_7_days_start?: string;
+  public_summary?: string;
+  diagnostic_upgrade?: string;
 }
 
 export interface AgentMessageData {
   text: string;
   ui_block?: UIBlock | null;
-}
-
-export interface ResultData {
-  subject?: string;
-  primary_factor?: string;
-  primary_desc?: string;
-  secondary_factors?: string[];
-  evidence?: string[];
-  missing_information?: string[];
-  parent_common_mistake?: string;
-  next_7_days_stop?: string;
-  next_7_days_start?: string;
-  public_summary?: string;
 }
 
 export interface APIStartResponse {

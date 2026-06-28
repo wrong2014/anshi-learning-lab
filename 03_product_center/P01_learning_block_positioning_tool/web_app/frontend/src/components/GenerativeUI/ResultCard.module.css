@@ -96,6 +96,36 @@
   color: var(--color-success);
 }
 
+.verificationBox {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.verificationTitle {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #1e40af;
+}
+
+.verificationSteps {
+  font-size: 0.9rem;
+  color: var(--color-text-main);
+  line-height: 1.6;
+}
+
+.verificationObserve {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  padding-top: 6px;
+  border-top: 1px solid #dbeafe;
+}
+
 @keyframes scaleIn {
   from {
     opacity: 0;

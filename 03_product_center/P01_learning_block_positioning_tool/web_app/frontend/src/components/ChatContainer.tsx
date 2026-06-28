@@ -113,6 +113,57 @@ export default function ChatContainer() {
     await sendToAgent({ free_text: text });
   };
 
+  // 统一的发送逻辑
+  const sendToAgent = async (params: {
+    free_text?: string;
+    selected_option_ids?: string[];
+    selected_labels?: string[];
+  }) => {
+    if (!sessionId) return;
+
+    setIsLoading(true);
+    try {
+      const res = await submitAnswer({
+        session_id: sessionId,
+        ...params,
+      });
+
+      const rawMsgs = res.agent_messages || [];
+      const agentMessages: Message[] = rawMsgs.map((msg, idx) => ({
+        id: `agent-${Date.now()}-${idx}`,
+        role: 'agent' as const,
+        content: msg.text || '',
+        uiBlock: msg.ui_block || undefined,
+      }));
+
+      if (res.result && agentMessages.length > 0) {
+        agentMessages[agentMessages.length - 1].result = res.result;
+      }
+
+      setMessages((prev) => [...prev, ...agentMessages]);
+      setIsComplete(res.is_complete);
+    } catch (err) {
+      console.error(err);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: 'agent',
+          content: '网络异常，请稍后重试。',
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendText();
+    }
+  };
+
   // 找到最后一条带 uiBlock 的 agent 消息的 index
   const lastAgentBlockIdx = [...messages]
     .map((m, i) => (m.role === 'agent' && m.uiBlock ? i : -1))

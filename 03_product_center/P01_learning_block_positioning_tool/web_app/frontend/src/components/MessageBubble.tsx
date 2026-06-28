@@ -4,6 +4,7 @@ import { Bot } from 'lucide-react';
 import styles from './MessageBubble.module.css';
 import type { Message } from '../types';
 import SingleChoiceCard from './GenerativeUI/SingleChoiceCard';
+import SubjectPicker from './GenerativeUI/SubjectPicker';
 import ResultCard from './GenerativeUI/ResultCard';
 
 interface Props {
@@ -21,25 +22,33 @@ export default function MessageBubble({ message, onOptionSelect, onMultiSelect, 
     if (!message.uiBlock) return null;
 
     switch (message.uiBlock.type) {
+      case 'subject_picker':
+        return (
+          <SubjectPicker
+            block={message.uiBlock}
+            onSelect={(optId, optLabel) => {
+              if (onOptionSelect) onOptionSelect(message.uiBlock!.id, optId, optLabel);
+            }}
+            disabled={!isLatestAgentMsg}
+          />
+        );
+
       case 'single_choice':
       case 'multi_choice':
         return (
           <SingleChoiceCard
             block={message.uiBlock}
             onSelect={(optId, optLabel) => {
-              if (onOptionSelect) {
-                onOptionSelect(message.uiBlock!.id, optId, optLabel);
-              }
+              if (onOptionSelect) onOptionSelect(message.uiBlock!.id, optId, optLabel);
             }}
             onMultiSelect={(optIds, optLabels) => {
-              if (onMultiSelect) {
-                onMultiSelect(message.uiBlock!.id, optIds, optLabels);
-              }
+              if (onMultiSelect) onMultiSelect(message.uiBlock!.id, optIds, optLabels);
             }}
             onFreeText={onFreeText}
             disabled={!isLatestAgentMsg}
           />
         );
+
       default:
         return null;
     }

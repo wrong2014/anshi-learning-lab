@@ -33,6 +33,71 @@ class FactorCode(str, Enum):
     F10_SUPPORT_AI = "F10_family_support_ai_misaligned"
 
 
+class DiagnosticCategory(str, Enum):
+    """5 大诊断类别（降维后）"""
+    A_FOUNDATION = "foundation"        # 基础概念不稳
+    B_REPRESENTATION = "representation" # 信息表征卡点
+    C_MODELING = "modeling"            # 建模迁移困难
+    D_EXECUTION = "execution"          # 执行流程不稳
+    E_SELF_REGULATION = "self_regulation"  # 自我调节薄弱
+
+
+class AmplifierCode(str, Enum):
+    """3 个放大因素（不能做主因）"""
+    F_REPAIR_LOOP = "repair_loop"      # 错题修复还没形成闭环
+    G_EXAM_RHYTHM = "exam_rhythm"      # 考试过程与节奏问题
+    H_AVOIDANCE = "avoidance"          # 数理化回避或挫败感
+
+
+# 10因子 → 5大类 的映射
+FACTOR_TO_CATEGORY: dict[FactorCode, DiagnosticCategory] = {
+    FactorCode.F01_PRIOR_KNOWLEDGE: DiagnosticCategory.A_FOUNDATION,
+    FactorCode.F02_CONCEPT: DiagnosticCategory.A_FOUNDATION,
+    FactorCode.F03_LANGUAGE_SYMBOL: DiagnosticCategory.B_REPRESENTATION,
+    FactorCode.F04_REPRESENTATION: DiagnosticCategory.B_REPRESENTATION,
+    FactorCode.F05_MODEL_TRANSFER: DiagnosticCategory.C_MODELING,
+    FactorCode.F06_EXECUTION: DiagnosticCategory.D_EXECUTION,
+    FactorCode.F07_METACOGNITION: DiagnosticCategory.E_SELF_REGULATION,
+    FactorCode.F08_STRATEGY: DiagnosticCategory.E_SELF_REGULATION,
+    FactorCode.F09_EMOTION: DiagnosticCategory.E_SELF_REGULATION,
+    FactorCode.F10_SUPPORT_AI: DiagnosticCategory.E_SELF_REGULATION,
+}
+
+
+# 类别中文标签
+CATEGORY_LABELS: dict[DiagnosticCategory, str] = {
+    DiagnosticCategory.A_FOUNDATION: "基础概念不稳",
+    DiagnosticCategory.B_REPRESENTATION: "信息表征卡点",
+    DiagnosticCategory.C_MODELING: "建模迁移困难",
+    DiagnosticCategory.D_EXECUTION: "执行流程不稳",
+    DiagnosticCategory.E_SELF_REGULATION: "自我调节薄弱",
+}
+
+
+# 放大器中文标签
+AMPLIFIER_LABELS: dict[AmplifierCode, str] = {
+    AmplifierCode.F_REPAIR_LOOP: "错题修复还没形成闭环",
+    AmplifierCode.G_EXAM_RHYTHM: "考试过程与节奏问题",
+    AmplifierCode.H_AVOIDANCE: "出现了回避或挫败感",
+}
+
+
+class DiagnosticCategory(str, Enum):
+    """诊断结果的五大类别（A–E）"""
+    A_FOUNDATION = "A_foundation"
+    B_REPRESENTATION = "B_representation"
+    C_MODELING = "C_modeling"
+    D_EXECUTION = "D_execution"
+    E_SELF_REGULATION = "E_self_regulation"
+
+
+class AmplifierCode(str, Enum):
+    """放大因子代码（F–H）"""
+    F_REPAIR_LOOP = "F_repair_loop"
+    G_EXAM_RHYTHM = "G_exam_rhythm"
+    H_AVOIDANCE = "H_avoidance"
+
+
 class Confidence(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
