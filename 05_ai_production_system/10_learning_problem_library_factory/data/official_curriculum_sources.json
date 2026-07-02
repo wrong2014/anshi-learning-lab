@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "notice_url": "https://www.moe.gov.cn/srcsite/A26/s8001/202204/t20220420_619921.html",
+  "sources": [
+    {
+      "id": "moe-math-2022",
+      "title": "义务教育数学课程标准（2022年版，以2022年5月9日版本为准）",
+      "subject": "math",
+      "authority": "中华人民共和国教育部",
+      "edition": "2022",
+      "official_url": "https://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220510531636118932.pdf",
+      "sha256": "1183b95c58a65eaac4c456f2d2b329bbe42f65a6482993edb537e3eaf8baa144",
+      "page_count": 189,
+      "logical_page_offset": 7,
+      "text_layer": "ocr_required",
+      "locally_verified": true
+    },
+    {
+      "id": "moe-science-2022",
+      "title": "义务教育科学课程标准（2022年版）",
+      "subject": "science",
+      "authority": "中华人民共和国教育部",
+      "edition": "2022",
+      "official_url": "https://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220420582355009892.pdf",
+      "sha256": "630b2fb082aed2f0b6aaff1cd30cdea530c41459ee0ffd5847e3e07b7324546f",
+      "page_count": 193,
+      "logical_page_offset": 7,
+      "text_layer": "ocr_required",
+      "locally_verified": true
+    },
+    {
+      "id": "moe-physics-2022",
+      "title": "义务教育物理课程标准（2022年版）",
+      "subject": "physics",
+      "authority": "中华人民共和国教育部",
+      "edition": "2022",
+      "official_url": "https://www.moe.gov.cn/srcsite/A26/s8001/202204/W020220420582357585169.pdf",
+      "sha256": "884069da6c924acb27b966ea20b9c7a4d8f0d6dfc828c80cd252aa72bf990340",
+      "page_count": 71,
+      "logical_page_offset": 7,
+      "text_layer": "ocr_required",
+      "locally_verified": true
+    },
+    {
+      "id": "moe-chemistry-2022",
+      "title": "义务教育化学课程标准（2022年版）",
+      "subject": "chemistry",
+      "authority": "中华人民共和国教育部",
+      "edition": "2022",
+      "official_url": "https://www.moe.gov.cn/srcsite/A26/s8001/202204/W020230605524875861384.pdf",
+      "sha256": "8e04592efba9a6baf41ebf6970d868f2461fbd8e43328fb2ddb57165aa0c2b5c",
+      "page_count": 87,
+      "logical_page_offset": 7,
+      "text_layer": "ocr_required",
+      "locally_verified": true
+    }
+  ]
+}

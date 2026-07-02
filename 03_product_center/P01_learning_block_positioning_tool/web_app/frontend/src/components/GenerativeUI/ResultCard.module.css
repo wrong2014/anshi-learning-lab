@@ -120,6 +120,36 @@
 
 .verificationObserve {
   font-size: 0.85rem;
+  margin-top: 12px;
+}
+
+.ctaSeparator {
+  width: 100%;
+  height: 1px;
+  background: #e2e8f0;
+  margin-bottom: 20px;
+}
+
+.ctaButton {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 9999px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  transition: all 0.2s ease;
+  width: 100%;
+  max-width: 320px;
+}
+
+.ctaButton:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+}
+.verificationObserve {
   color: var(--color-text-muted);
   line-height: 1.5;
   padding-top: 6px;
@@ -127,12 +157,88 @@
 }
 
 @keyframes scaleIn {
-  from {
+  0% {
     opacity: 0;
-    transform: scale(0.95) translateY(10px);
+    transform: scale(0.95) translateY(20px);
   }
-  to {
+  100% {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+.copyButton {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+  margin-left: auto;
+}
+
+.copyButton:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.checkboxList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.checkboxItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  transition: background 0.2s ease;
+}
+
+.checkboxItem:hover {
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.checkboxSquare {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-primary);
+  border-radius: 4px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.checkboxSquare.checked {
+  background: var(--color-primary);
+}
+
+.checkboxText {
+  font-size: 0.9rem;
+  color: var(--color-text-main);
+  line-height: 1.5;
+  transition: color 0.2s ease;
+}
+
+.checkboxText.checked {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.ctaSection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 12px;
 }

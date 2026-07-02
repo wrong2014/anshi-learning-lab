@@ -82,20 +82,7 @@ AMPLIFIER_LABELS: dict[AmplifierCode, str] = {
 }
 
 
-class DiagnosticCategory(str, Enum):
-    """诊断结果的五大类别（A–E）"""
-    A_FOUNDATION = "A_foundation"
-    B_REPRESENTATION = "B_representation"
-    C_MODELING = "C_modeling"
-    D_EXECUTION = "D_execution"
-    E_SELF_REGULATION = "E_self_regulation"
 
-
-class AmplifierCode(str, Enum):
-    """放大因子代码（F–H）"""
-    F_REPAIR_LOOP = "F_repair_loop"
-    G_EXAM_RHYTHM = "G_exam_rhythm"
-    H_AVOIDANCE = "H_avoidance"
 
 
 class Confidence(str, Enum):

@@ -1,0 +1,44 @@
+{
+  "providers": [
+    {
+      "name": "planner-model",
+      "role": "planner",
+      "model": "YOUR_PLANNER_MODEL",
+      "base_url": "https://YOUR_ENDPOINT/v1",
+      "api_key_env": "PLF_PLANNER_API_KEY",
+      "temperature": 0.1,
+      "max_tokens": 5000,
+      "timeout_seconds": 90
+    },
+    {
+      "name": "executor-model-a",
+      "role": "executor",
+      "model": "YOUR_EXECUTOR_MODEL_A",
+      "base_url": "https://YOUR_ENDPOINT/v1",
+      "api_key_env": "PLF_EXECUTOR_A_API_KEY",
+      "temperature": 0.2,
+      "max_tokens": 8000,
+      "timeout_seconds": 120
+    },
+    {
+      "name": "executor-model-b",
+      "role": "executor",
+      "model": "YOUR_EXECUTOR_MODEL_B",
+      "base_url": "https://YOUR_ENDPOINT/v1",
+      "api_key_env": "PLF_EXECUTOR_B_API_KEY",
+      "temperature": 0.2,
+      "max_tokens": 8000,
+      "timeout_seconds": 120
+    },
+    {
+      "name": "supervisor-model",
+      "role": "supervisor",
+      "model": "YOUR_SUPERVISOR_MODEL",
+      "base_url": "https://YOUR_ENDPOINT/v1",
+      "api_key_env": "PLF_SUPERVISOR_API_KEY",
+      "temperature": 0.0,
+      "max_tokens": 5000,
+      "timeout_seconds": 120
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "request-learning-psychology-k9",
+  "recipe_id": "learning_psychology_cognition_v1",
+  "evidence_mode": "source_grounded",
+  "source_pack": {
+    "id": "source-pack-learning-psychology",
+    "title": "青少年学习心理与认知来源包",
+    "scope_note": "正式运行前替换为经过授权、可定位和人工核验的心理学研究与专业指南。",
+    "documents": [
+      {
+        "id": "source-psychology-placeholder",
+        "title": "待替换的心理学来源",
+        "kind": "professional_guideline",
+        "publisher_or_author": "待填写",
+        "edition_or_year": "待填写",
+        "locator": "待填写",
+        "content": "这是结构示例，不是正式理论来源。真实生产前必须替换，并由人工核验其准确性。",
+        "verified_by_human": false
+      }
+    ]
+  },
+  "scope": {
+    "subject": "cross_subject",
+    "grade_min": 1,
+    "grade_max": 9,
+    "modules": ["心理", "认知", "动机"],
+    "granularity": "module"
+  },
+  "requested_by": "local",
+  "max_reruns": 2
+}

@@ -185,6 +185,16 @@ class ConversationAgent:
         # 阶段推进
         self._advance_stage(session)
 
+        # === Observability Injection: 注入遥测数据到上下文 ===
+        from .factor_rules import accumulate_scores
+        scores = accumulate_scores(session.rule_subject, session.rule_option_ids)
+        if scores:
+            top_factors = sorted(scores.keys(), key=lambda k: scores[k], reverse=True)[:2]
+            top_factors_str = "、".join([f.value for f in top_factors])
+            telemetry_msg = f"\n\n[系统内部遥测数据 - 请结合参考] 当前基于家长客观选项的最高分疑似因子为: {top_factors_str}。请在生成下一句追问或结论时重点参考此客观线索，不要偏离。"
+            if session.history and session.history[-1]["role"] == "user":
+                session.history[-1]["content"] += telemetry_msg
+
         # 如果到了最大轮次，强制出结果
         force_conclude = session.turn_count >= self.MAX_TURNS
 
@@ -435,17 +445,17 @@ class ConversationAgent:
             )]
         )
 
-    def _fallback_response(self, session: ConversationSession) -> AgentTurnResult:
-        """LLM 不可用时的降级回复"""
-        turn = session.turn_count
-        if turn <= 2:
+    def _generate_fallback_response(self, session: ConversationSession) -> AgentTurnResult:
+        """LLM 不可用时，按阶段提供体验降级的纯 UI 回复"""
+        stage = session.stage
+        if stage == "opening" or stage == "story":
             return AgentTurnResult(
                 messages=[AgentMessage(
-                    text="谢谢你的描述。这件事主要发生在哪一科？",
+                    text="大模型网络开小差了，请问您孩子目前最主要的问题集中在哪一科？",
                     ui_block={
                         "type": "single_choice",
-                        "id": "subject_select",
-                        "title": "这件事主要发生在哪一科？",
+                        "id": "fallback_subject",
+                        "title": "请选择发生问题的学科",
                         "options": [
                             {"id": "subject_math", "label": "数学"},
                             {"id": "subject_physics", "label": "物理"},
@@ -454,8 +464,30 @@ class ConversationAgent:
                     }
                 )]
             )
+        elif stage == "narrow" or stage == "probe":
+            return AgentTurnResult(
+                messages=[AgentMessage(
+                    text="刚才网络好像断了一下。关于这个问题，孩子平时最符合以下哪种表现？",
+                    ui_block={
+                        "type": "single_choice",
+                        "id": "fallback_category",
+                        "title": "最符合的表现",
+                        "options": [
+                            {"id": "fb_A", "label": "基础概念不稳，公式一换就不会"},
+                            {"id": "fb_B", "label": "读不懂题，不知道怎么把文字转成式子"},
+                            {"id": "fb_C", "label": "会套公式，但一遇到新情境就列不出关系"},
+                            {"id": "fb_D", "label": "思路对，但算错、抄错、步骤混乱"},
+                            {"id": "fb_E", "label": "遇挫容易放弃，平时复习很少反思纠错"},
+                        ]
+                    }
+                )]
+            )
         else:
             return AgentTurnResult(
-                messages=[AgentMessage(text="LLM 服务暂时不可用，无法完成深度定位。请稍后再试。")],
+                messages=[AgentMessage(text="LLM 服务暂时不可用，但我记录了您之前的信息。为了给您准确的诊断，请稍后再试。")],
                 should_conclude=True,
             )
+
+    def _fallback_response(self, session: ConversationSession) -> AgentTurnResult:
+        """保持兼容的老入口，直接调用新方法"""
+        return self._generate_fallback_response(session)

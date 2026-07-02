@@ -1,0 +1,31 @@
+{
+  "id": "request-math-g7-linear-equation-source-grounded",
+  "recipe_id": "math_knowledge_graph_v1",
+  "evidence_mode": "source_grounded",
+  "source_pack": {
+    "id": "pack-math-g7-linear-equation-demo",
+    "title": "七年级一元一次方程来源包（待替换）",
+    "scope_note": "这是来源审计模式的结构示例。正式运行前必须替换为经过授权和人工核验的课程标准、教材目录或专业资料。",
+    "documents": [
+      {
+        "id": "source-replace-before-production",
+        "title": "待替换的来源占位",
+        "kind": "curriculum_standard",
+        "publisher_or_author": "待填写",
+        "edition_or_year": "待填写",
+        "locator": "待填写章节或页码",
+        "content": "请在这里放入经过授权、经过人工核验，并且能够定位到具体章节的来源内容。",
+        "verified_by_human": false
+      }
+    ]
+  },
+  "scope": {
+    "subject": "math",
+    "grade_min": 7,
+    "grade_max": 7,
+    "modules": ["一元一次方程"],
+    "granularity": "knowledge_point"
+  },
+  "requested_by": "local",
+  "max_reruns": 2
+}

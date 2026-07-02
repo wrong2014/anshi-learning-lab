@@ -1,0 +1,8 @@
+{
+  "id": "curriculum-k9-stem-2022",
+  "title": "中国义务教育一至九年级数理化知识任务树",
+  "subjects": ["math", "science", "physics", "chemistry"],
+  "grade_min": 1,
+  "grade_max": 9,
+  "require_complete_coverage": true
+}

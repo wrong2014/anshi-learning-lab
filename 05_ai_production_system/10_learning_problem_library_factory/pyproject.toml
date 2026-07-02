@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "learning-problem-library-factory"
+version = "0.2.0"
+description = "Auditable multi-model production pipeline for a youth STEM learning-problem library"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+retrieval = ["httpx>=0.27", "numpy>=1.26", "torch>=2.0", "transformers>=4.40"]
+
+[project.scripts]
+problem-library-factory = "learning_problem_factory.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"

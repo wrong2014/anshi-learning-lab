@@ -1,0 +1,67 @@
+{
+  "providers": [
+    {
+      "name": "outline-agent-a",
+      "role": "outline",
+      "model": "replace-with-model-a",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_MODEL_A_API_KEY",
+      "temperature": 0.1,
+      "max_tokens": 16000
+    },
+    {
+      "name": "outline-agent-b",
+      "role": "outline",
+      "model": "replace-with-model-b",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_MODEL_B_API_KEY",
+      "temperature": 0.1,
+      "max_tokens": 16000
+    },
+    {
+      "name": "knowledge-point-agent-a",
+      "role": "knowledge_point",
+      "model": "replace-with-model-a",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_MODEL_A_API_KEY",
+      "temperature": 0.2,
+      "max_tokens": 12000
+    },
+    {
+      "name": "knowledge-point-agent-b",
+      "role": "knowledge_point",
+      "model": "replace-with-model-b",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_MODEL_B_API_KEY",
+      "temperature": 0.2,
+      "max_tokens": 12000
+    },
+    {
+      "name": "graph-agent-a",
+      "role": "graph",
+      "model": "replace-with-model-a",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_MODEL_A_API_KEY",
+      "temperature": 0.1,
+      "max_tokens": 16000
+    },
+    {
+      "name": "graph-agent-b",
+      "role": "graph",
+      "model": "replace-with-model-b",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_MODEL_B_API_KEY",
+      "temperature": 0.1,
+      "max_tokens": 16000
+    },
+    {
+      "name": "curriculum-supervisor",
+      "role": "supervisor",
+      "model": "replace-with-supervisor-model",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "CURRICULUM_SUPERVISOR_API_KEY",
+      "temperature": 0.0,
+      "max_tokens": 8000
+    }
+  ]
+}

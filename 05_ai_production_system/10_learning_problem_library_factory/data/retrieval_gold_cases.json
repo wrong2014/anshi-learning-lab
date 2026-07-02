@@ -1,0 +1,100 @@
+[
+  {
+    "id": "knowledge-math-linear-equation",
+    "query": "解方程时只记得移项变号，想查一元一次方程和等式变形",
+    "filters": {"subjects": ["math"], "grade": 7, "layers": ["knowledge_graph"]},
+    "expected_parent_ids": ["math.theme-01-topic-01.g7-9.kp-25"],
+    "max_rank": 3
+  },
+  {
+    "id": "knowledge-physics-force-diagram",
+    "query": "画出物体受到的力，标明力的方向和大小",
+    "filters": {"subjects": ["physics"], "grade": 8, "layers": ["knowledge_graph"]},
+    "expected_parent_ids": ["physics.theme-02-topic-02.g8-9.kp-07"],
+    "max_rank": 3
+  },
+  {
+    "id": "knowledge-chemistry-equation",
+    "query": "根据反应物和生成物写出并配平化学反应方程式",
+    "filters": {"subjects": ["chemistry"], "grade": 9, "layers": ["knowledge_graph"]},
+    "expected_parent_ids": ["chemistry.theme-04-topic-04.g9-9.kp-14"],
+    "max_rank": 3
+  },
+  {
+    "id": "thinking-math-representation",
+    "query": "应用题文字很多，孩子读完不知道怎么列式，也画不出数量关系",
+    "filters": {"subjects": ["math"], "grade": 6, "layers": ["core_thinking"], "unit_types": ["thinking_observable_signal"]},
+    "expected_parent_ids": ["math.math-vision-abstract", "math.math-language-model"],
+    "max_rank": 3
+  },
+  {
+    "id": "thinking-physics-argumentation",
+    "query": "做题只会套公式，说不清为什么用这个公式，也找不到题目中的条件作为依据",
+    "filters": {"subjects": ["physics"], "grade": 8, "layers": ["core_thinking"], "unit_types": ["thinking_observable_signal"]},
+    "expected_parent_ids": ["physics.scientific_argumentation", "physics.dim-physics-model-construction"],
+    "max_rank": 3
+  },
+  {
+    "id": "thinking-physics-model",
+    "query": "解释筷子在水里看起来弯折时只会凭直觉猜，不能画出简单光线模型",
+    "filters": {"subjects": ["physics"], "grade": 8, "layers": ["core_thinking"], "unit_types": ["thinking_observable_signal"]},
+    "expected_parent_ids": ["physics.dim-physics-model-construction"],
+    "max_rank": 3
+  },
+  {
+    "id": "thinking-chemistry-macro-micro-symbolic",
+    "query": "能背实验的宏观现象，却不会解释微观粒子怎样变化，也写不出化学符号",
+    "filters": {"subjects": ["chemistry"], "grade": 9, "layers": ["core_thinking"], "unit_types": ["thinking_observable_signal"]},
+    "expected_parent_ids": ["chemistry.macro-micro-symbolic-representation"],
+    "max_rank": 3
+  },
+  {
+    "id": "psychology-self-efficacy",
+    "query": "孩子常说我数学就是不行，一看到稍难的题就直接放弃，不愿意先试一试",
+    "filters": {"layers": ["psychology_cognition"], "actors": ["parent"], "unit_types": ["psychology_observable_signal"]},
+    "expected_parent_ids": ["psychology.academic-self-efficacy", "psychology.learned-helplessness-risk"],
+    "max_rank": 3
+  },
+  {
+    "id": "psychology-test-anxiety",
+    "query": "考试遇到推导题就头脑空白、心跳加快，只好草率跳过",
+    "filters": {"layers": ["psychology_cognition"]},
+    "expected_parent_ids": ["psychology.test-anxiety"],
+    "max_rank": 3
+  },
+  {
+    "id": "cognition-working-memory",
+    "query": "做多步骤计算时，进行到后面就忘了前面的中间结果和题目条件",
+    "filters": {"layers": ["psychology_cognition"]},
+    "expected_parent_ids": ["cognition.working-memory", "cognition.cognitive-load"],
+    "max_rank": 3
+  },
+  {
+    "id": "safety-referral-self-worth",
+    "query": "这种状态持续了一个月，孩子拒绝上学，还说自己活着没价值、什么都做不好",
+    "filters": {"layers": ["psychology_cognition"], "safety_levels": ["referral"]},
+    "expected_parent_ids": ["psychology.academic-self-efficacy", "psychology.learned-helplessness-risk", "psychology.school-burnout"],
+    "max_rank": 5
+  },
+  {
+    "id": "mixed-physics-formula-transfer",
+    "query": "孩子物理例题会做，换个场景就不知道选哪个公式，也说不清各个量的关系",
+    "filters": {"subjects": ["physics"], "grade": 8},
+    "expected_parent_ids": ["physics.scientific_argumentation", "physics.dim-physics-model-construction", "physics.dim-physics-scientific-reasoning"],
+    "max_rank": 3
+  },
+  {
+    "id": "mixed-math-word-representation",
+    "query": "应用题文字很多，孩子读完不知道怎么列式，也画不出数量关系",
+    "filters": {"subjects": ["math"], "grade": 6},
+    "expected_parent_ids": ["math.g5-6.quant-rel.06", "math.math-vision-abstract", "math.math-language-model"],
+    "max_rank": 3
+  },
+  {
+    "id": "mixed-chemistry-representation",
+    "query": "化学现象能背，但说不清微观粒子怎么变化，也不会写成方程式",
+    "filters": {"subjects": ["chemistry"], "grade": 9},
+    "expected_parent_ids": ["chemistry.macro-micro-symbolic-representation", "chemistry.theme-04-topic-04.g9-9.kp-04", "chemistry.theme-04-topic-04.g9-9.kp-02", "chemistry.theme-04-topic-04.g9-9.kp-14"],
+    "max_rank": 3
+  }
+]

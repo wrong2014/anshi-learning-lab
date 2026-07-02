@@ -1,0 +1,31 @@
+{
+  "id": "request-math-core-thinking-k9",
+  "recipe_id": "math_core_thinking_v1",
+  "evidence_mode": "source_grounded",
+  "source_pack": {
+    "id": "source-pack-math-thinking",
+    "title": "数学核心思维来源包",
+    "scope_note": "正式运行前替换为经过授权、可定位和人工核验的课程标准与数学教育研究资料。",
+    "documents": [
+      {
+        "id": "source-math-thinking-placeholder",
+        "title": "待替换的数学思维来源",
+        "kind": "expert_note",
+        "publisher_or_author": "待填写",
+        "edition_or_year": "待填写",
+        "locator": "待填写",
+        "content": "这是结构示例，不是正式来源。运行真实生产前必须替换为经过核验的资料正文。",
+        "verified_by_human": false
+      }
+    ]
+  },
+  "scope": {
+    "subject": "math",
+    "grade_min": 1,
+    "grade_max": 9,
+    "modules": ["数学核心思维"],
+    "granularity": "module"
+  },
+  "requested_by": "local",
+  "max_reruns": 2
+}

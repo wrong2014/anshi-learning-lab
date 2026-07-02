@@ -1,9 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Loader2 } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import type { KeyboardEvent } from 'react';
+import { Send } from 'lucide-react';
 import styles from './ChatContainer.module.css';
 import MessageBubble from './MessageBubble';
+import ThinkingIndicator from './ThinkingIndicator';
 import { startSession, submitAnswer } from '../api';
-import type { Message, ResultData } from '../types';
+import type { Message } from '../types';
 
 export default function ChatContainer() {
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -72,7 +74,7 @@ export default function ChatContainer() {
   };
 
   // 点击选项（单选）
-  const handleOptionSelect = async (blockId: string, optionId: string, optionLabel: string) => {
+  const handleOptionSelect = async (_blockId: string, optionId: string, optionLabel: string) => {
     if (!sessionId || isLoading || isComplete) return;
 
     setMessages((prev) => [
@@ -87,7 +89,7 @@ export default function ChatContainer() {
   };
 
   // 多选确认
-  const handleMultiSelect = async (blockId: string, optionIds: string[], optionLabels: string[]) => {
+  const handleMultiSelect = async (_blockId: string, optionIds: string[], optionLabels: string[]) => {
     if (!sessionId || isLoading || isComplete) return;
 
     setMessages((prev) => [
@@ -157,7 +159,7 @@ export default function ChatContainer() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = (e: KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendText();
@@ -170,12 +172,40 @@ export default function ChatContainer() {
     .filter((i) => i >= 0)
     .pop();
 
+  const userTurns = messages.filter((m) => m.role === 'user').length;
+  let activeStep = 0;
+  if (isComplete) {
+    activeStep = 3;
+  } else if (userTurns >= 2) {
+    activeStep = 2;
+  } else if (userTurns === 1) {
+    activeStep = 1;
+  } else {
+    activeStep = 0;
+  }
+
   return (
     <div className={styles.chatContainer}>
       <header className={styles.header}>
-        <div>
-          <h2 className={styles.title}>理科学习卡点定位</h2>
-          <p className={styles.subtitle}>AI 对话式智能体 · Powered by DeepSeek</p>
+        <div className={styles.headerTop}>
+          <div>
+            <h2 className={styles.title}>理科学习卡点定位</h2>
+            <p className={styles.subtitle}>AI 对话式智能体 · Powered by DeepSeek</p>
+          </div>
+        </div>
+        <div className={styles.progressContainer}>
+          {[0, 1, 2, 3].map((stepIndex) => (
+            <div
+              key={stepIndex}
+              className={`${styles.progressStep} ${
+                stepIndex < activeStep
+                  ? styles.progressStepCompleted
+                  : stepIndex === activeStep
+                  ? styles.progressStepActive
+                  : ''
+              }`}
+            />
+          ))}
         </div>
       </header>
 
@@ -190,20 +220,7 @@ export default function ChatContainer() {
             isLatestAgentMsg={idx === lastAgentBlockIdx}
           />
         ))}
-        {isLoading && (
-          <div
-            style={{
-              display: 'flex',
-              gap: '8px',
-              color: 'var(--color-text-muted)',
-              fontSize: '0.9rem',
-              alignItems: 'center',
-              padding: '8px 0',
-            }}
-          >
-            <Loader2 size={16} className="spin" /> 智能体正在分析你的描述...
-          </div>
-        )}
+        {isLoading && <ThinkingIndicator />}
         <div ref={messagesEndRef} />
       </div>
 
@@ -232,14 +249,7 @@ export default function ChatContainer() {
         </div>
       </div>
 
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-        .spin { animation: spin 1s linear infinite; }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-      `,
-        }}
-      />
+      {/* 移除原本内联的 spin 样式，因为已经换成了 ThinkingIndicator */}
     </div>
   );
 }

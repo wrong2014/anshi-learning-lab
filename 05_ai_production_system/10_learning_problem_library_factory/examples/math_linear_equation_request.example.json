@@ -1,0 +1,14 @@
+{
+  "id": "request-math-g7-linear-equation-distill",
+  "recipe_id": "math_knowledge_graph_v1",
+  "evidence_mode": "model_distillation",
+  "scope": {
+    "subject": "math",
+    "grade_min": 7,
+    "grade_max": 7,
+    "modules": ["一元一次方程"],
+    "granularity": "knowledge_point"
+  },
+  "requested_by": "local",
+  "max_reruns": 2
+}

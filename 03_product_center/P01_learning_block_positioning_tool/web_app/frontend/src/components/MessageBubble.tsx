@@ -1,4 +1,4 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { Bot } from 'lucide-react';
 import styles from './MessageBubble.module.css';
@@ -17,6 +17,30 @@ interface Props {
 
 export default function MessageBubble({ message, onOptionSelect, onMultiSelect, onFreeText, isLatestAgentMsg }: Props) {
   const isUser = message.role === 'user';
+
+  const [displayedContent, setDisplayedContent] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+
+  useEffect(() => {
+    if (!isUser && isLatestAgentMsg && message.content) {
+      setIsTyping(true);
+      setDisplayedContent('');
+      let i = 0;
+      const text = message.content;
+      const interval = setInterval(() => {
+        setDisplayedContent(text.slice(0, i + 1));
+        i++;
+        if (i >= text.length) {
+          clearInterval(interval);
+          setIsTyping(false);
+        }
+      }, 30);
+      return () => clearInterval(interval);
+    } else {
+      setDisplayedContent(message.content || '');
+      setIsTyping(false);
+    }
+  }, [message.content, isUser, isLatestAgentMsg]);
 
   const renderUIBlock = () => {
     if (!message.uiBlock) return null;
@@ -70,12 +94,12 @@ export default function MessageBubble({ message, onOptionSelect, onMultiSelect, 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxWidth: '80%' }}>
         {message.content && (
           <div className={clsx(styles.bubble, isUser ? styles.userBubble : styles.agentBubble)}>
-            {message.content}
+            {displayedContent}
           </div>
         )}
 
-        {!isUser && renderUIBlock()}
-        {!isUser && renderResult()}
+        {!isUser && !isTyping && renderUIBlock()}
+        {!isUser && !isTyping && renderResult()}
       </div>
     </div>
   );

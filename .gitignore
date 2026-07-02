@@ -45,3 +45,4 @@ temp/
 
 # Local diagnostic session logs
 **/web_app/data/sessions/*.jsonl
+**/web_app/data/sessions/*.json

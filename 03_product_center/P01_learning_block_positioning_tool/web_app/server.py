@@ -34,11 +34,38 @@ DATA_ROOT = Path(__file__).resolve().parent / "data" / "sessions"
 DATA_ROOT.mkdir(parents=True, exist_ok=True)
 
 
+import dataclasses
+
 def persist_event(session_id: str, event_type: str, payload) -> None:
     target = DATA_ROOT / f"{session_id}.jsonl"
     record = {"event_type": event_type, "payload": payload}
     with target.open("a", encoding="utf-8") as file:
         file.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+def save_session_state(session: ConversationSession) -> None:
+    target = DATA_ROOT / f"{session.session_id}_state.json"
+    with target.open("w", encoding="utf-8") as file:
+        # Convert Enum Subject to string for JSON serialization
+        session_dict = dataclasses.asdict(session)
+        session_dict["rule_subject"] = session_dict["rule_subject"].value
+        file.write(json.dumps(session_dict, ensure_ascii=False, indent=2))
+
+def load_all_sessions() -> None:
+    from science_diagnostic_agent.models import Subject
+    for state_file in DATA_ROOT.glob("*_state.json"):
+        try:
+            with state_file.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+                # Convert string back to Subject Enum
+                if "rule_subject" in data:
+                    data["rule_subject"] = Subject(data["rule_subject"])
+                session = ConversationSession(**data)
+                sessions[session.session_id] = session
+        except Exception as e:
+            print(f"Failed to load session {state_file}: {e}")
+
+# Load all sessions at module initialization
+load_all_sessions()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -50,6 +77,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/start":
             session, turn_result = agent.start_session()
             sessions[session.session_id] = session
+            save_session_state(session)
 
             persist_event(session.session_id, "session_started", {
                 "session_id": session.session_id,
@@ -124,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
 
                 if turn_result.result:
                     persist_event(session_id, "result_generated", turn_result.result)
+
+                save_session_state(session)
 
                 response = {
                     "session_id": session_id,

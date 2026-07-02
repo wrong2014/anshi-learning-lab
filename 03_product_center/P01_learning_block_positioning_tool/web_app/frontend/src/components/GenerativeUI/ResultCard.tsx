@@ -1,4 +1,3 @@
-import React from 'react';
 import { Target, XCircle, CheckCircle2, AlertTriangle, ClipboardCheck, HelpCircle } from 'lucide-react';
 import styles from './ResultCard.module.css';
 import type { ResultData } from '../../types';
@@ -137,6 +136,17 @@ export default function ResultCard({ data }: Props) {
             </div>
           </div>
         )}
+
+        {/* P02 CTA Button */}
+        <div className={styles.ctaSection}>
+          <div className={styles.ctaSeparator}></div>
+          <button
+            className={styles.ctaButton}
+            onClick={() => alert("即将为您无缝切换至 P02 智能体，生成专属方案！")}
+          >
+            👉 生成专属家庭陪伴方案 (进入 P02)
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -19,7 +19,7 @@
   font-size: 0.95rem;
   line-height: 1.6;
   position: relative;
-  animation: fadeIn 0.3s ease-out;
+  animation: slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .userBubble {
@@ -54,12 +54,12 @@
   color: white;
 }
 
-@keyframes fadeIn {
-  from {
+@keyframes slideInUp {
+  0% {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(16px);
   }
-  to {
+  100% {
     opacity: 1;
     transform: translateY(0);
   }
